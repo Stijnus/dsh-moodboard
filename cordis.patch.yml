@@ -1,0 +1,7 @@
+# Moodboard bundle: insert the Host half into the composed profile.
+# The row resolves the package through the profile's node_modules
+# (plugin_manager install_bundle installs this package from npm, or links a
+# local checkout during development).
+- insert:
+    - id: moodboard
+      name: '@stijnus/dsh-moodboard'

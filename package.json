@@ -1,0 +1,68 @@
+{
+  "name": "@stijnus/dsh-moodboard",
+  "version": "0.1.0",
+  "description": "Visual reference moodboard for DeepSeek Harness: drag-and-drop images, tags, notes, and pinned style guides the agent reads before generating UI.",
+  "license": "MIT",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node --check index.js && node --check client.js && node --test test/plugin.test.mjs",
+    "pack:check": "npm pack --dry-run"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "moodboard",
+    "design",
+    "ui",
+    "style-guide",
+    "agent"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Stijnus/dsh-moodboard.git"
+  },
+  "homepage": "https://github.com/Stijnus/dsh-moodboard#readme",
+  "bugs": {
+    "url": "https://github.com/Stijnus/dsh-moodboard/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    },
+    "compatibility": {
+      "dsh": ">=0.2.1-rc.3 <0.3.0-0"
+    }
+  },
+  "engines": {
+    "dsh": ">=0.2.1-rc.3 <0.3.0-0"
+  }
+}
