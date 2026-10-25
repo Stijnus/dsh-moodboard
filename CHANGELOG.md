@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.8 — 2026-10-25
+
+### Changed
+
+- Advertise a catalog category so plugin markets place it under UI instead of guessing.
+
 ## 0.2.7 — 2026-10-25
 
 ### Changed

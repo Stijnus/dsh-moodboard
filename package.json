@@ -1,6 +1,6 @@
 {
   "name": "dsh-moodboard",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "Visual reference moodboard for DeepSeek Harness: drag-and-drop images, tags, notes, and pinned style guides the agent reads before generating UI.",
   "license": "MIT",
   "type": "module",
@@ -60,6 +60,13 @@
     },
     "compatibility": {
       "dsh": ">=0.2.1-rc.3 <0.3.0-0"
+    },
+    "catalog": {
+      "summary": {
+        "en": "Drop in screenshots, tag and annotate them, pin a style guide, and the agent reads those references before it designs UI.",
+        "zh": "拖入截图、打标签与备注、固定风格指南，智能体在设计界面前先读取这些参考。"
+      },
+      "category": "ui"
     }
   },
   "engines": {
