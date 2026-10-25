@@ -111,6 +111,8 @@ window.__ModuleLoader__.load({
         searchClear: 'Clear search',
         searchResults: 'Showing {shown} of {total}',
         searchNoMatches: 'No images match your search.',
+        showMore: 'Show more',
+        showMoreLabel: 'Show more images',
         reorderHint: 'Drag a card to reorder the gallery.',
         reorderFilteredHint: 'Clear the tag filter to reorder the gallery.',
         reorderSearchHint: 'Clear the search to reorder the gallery.',
@@ -303,6 +305,8 @@ window.__ModuleLoader__.load({
         searchClear: '清除搜索',
         searchResults: '显示 {shown} / {total} 张',
         searchNoMatches: '没有与搜索匹配的图片。',
+        showMore: '显示更多',
+        showMoreLabel: '显示更多图片',
         reorderHint: '拖动卡片即可调整图片库顺序。',
         reorderFilteredHint: '清除标签筛选后即可调整图片库顺序。',
         reorderSearchHint: '清除搜索后即可调整图片库顺序。',
@@ -766,12 +770,13 @@ window.__ModuleLoader__.load({
       imageUrlInflight.clear()
     }
 
-    function useImageUrl(image) {
+    function useImageUrl(image, enabled = true) {
       const key = image === null || image === undefined ? '' : imageKey(image)
-      const [url, setUrl] = useState(() => (key === '' ? '' : imageUrlCache.get(key) || ''))
+      const active = enabled !== false
+      const [url, setUrl] = useState(() => (key === '' || !active ? '' : imageUrlCache.get(key) || ''))
       useEffect(() => {
-        if (key === '') {
-          setUrl('')
+        if (key === '' || !active) {
+          if (key === '') setUrl('')
           return undefined
         }
         const cached = imageUrlCache.get(key)
@@ -790,13 +795,53 @@ window.__ModuleLoader__.load({
         return () => {
           cancelled = true
         }
-      }, [key])
+      }, [key, active])
       return url
+    }
+
+    /**
+     * Track whether an element is near the viewport. Once visible it stays
+     * visible, so the wrapped resource is never unloaded again.
+     * @returns `[ref, inView]`; without IntersectionObserver it is always true.
+     */
+    function useInView(enabled) {
+      const [inView, setInView] = useState(() => enabled !== true)
+      const ref = useRef(null)
+      useEffect(() => {
+        if (enabled !== true) {
+          setInView(true)
+          return undefined
+        }
+        if (inView) return undefined
+        const node = ref.current
+        if (node === null || node === undefined || typeof IntersectionObserver !== 'function') {
+          setInView(true)
+          return undefined
+        }
+        const observer = new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                setInView(true)
+                observer.disconnect()
+                break
+              }
+            }
+          },
+          { rootMargin: '400px 0px' },
+        )
+        observer.observe(node)
+        return () => observer.disconnect()
+      }, [enabled, inView])
+      return [ref, inView]
     }
 
     // ---------------------------------------------------------------------------
     // Dominant-color palette cache (canvas quantization, cached per image revision)
     // ---------------------------------------------------------------------------
+
+    /** Cards rendered before the scroll sentinel loads the next page. */
+    const GALLERY_PAGE_SIZE = 36
 
     const PALETTE_MAX_IMAGES = 12
     const PALETTE_MAX_SWATCHES = 10
@@ -1755,6 +1800,8 @@ window.__ModuleLoader__.load({
 .dsh-mb-card[data-selected='true'] { border-color: var(--dsw-alias-brand-primary); }
 .dsh-mb-thumb-btn { display: block; width: 100%; padding: 0; border: 0; background: transparent; aspect-ratio: 4 / 3; overflow: hidden; cursor: pointer; }
 .dsh-mb-thumb-btn img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.dsh-mb-thumb-frame { display: block; position: relative; width: 100%; height: 100%; }
+.dsh-mb-load-more { display: flex; justify-content: center; padding: 10px 0 2px; }
 .dsh-mb-thumb-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-layer-2); }
 .dsh-mb-pin-badge { position: absolute; top: 6px; left: 6px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; background: var(--dsw-alias-bg-overlay); color: var(--dsw-alias-label-primary); font-size: 11px; line-height: 1.4; }
 .dsh-mb-card-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 6px 8px 8px; }
@@ -1996,11 +2043,33 @@ window.__ModuleLoader__.load({
     // ---------------------------------------------------------------------------
 
     function Thumb(props) {
-      const url = useImageUrl(props.image)
-      if (url === '') {
-        return h('span', { className: 'dsh-mb-thumb-placeholder', 'aria-hidden': 'true' }, h(IconImage, { size: 18 }))
-      }
-      return h('img', { src: url, alt: props.alt, loading: 'lazy', draggable: 'false' })
+      const lazy = props.lazy === true
+      const [frameRef, inView] = useInView(lazy)
+      const url = useImageUrl(props.image, lazy ? inView : true)
+      const inner =
+        url === ''
+          ? h('span', { className: 'dsh-mb-thumb-placeholder', 'aria-hidden': 'true' }, h(IconImage, { size: 18 }))
+          : h('img', { src: url, alt: props.alt, loading: 'lazy', draggable: 'false' })
+      if (!lazy) return inner
+      return h('span', { ref: frameRef, className: 'dsh-mb-thumb-frame' }, inner)
+    }
+
+    /** Scroll sentinel plus fallback button that reveals the next gallery page. */
+    function LoadMore(props) {
+      const [ref, inView] = useInView(true)
+      useEffect(() => {
+        if (inView && props.hasMore) props.onLoadMore()
+      }, [inView, props.hasMore, props.onLoadMore])
+      if (!props.hasMore) return null
+      return h(
+        'div',
+        { ref, className: 'dsh-mb-load-more' },
+        h(
+          'button',
+          { type: 'button', className: 'dsh-mb-btn', onClick: props.onLoadMore, 'aria-label': props.label },
+          props.text,
+        ),
+      )
     }
 
     // ---------------------------------------------------------------------------
@@ -2782,6 +2851,7 @@ window.__ModuleLoader__.load({
       const [dragActive, setDragActive] = useState(false)
       const [copying, setCopying] = useState(false)
       const [pasting, setPasting] = useState(false)
+      const [renderLimit, setRenderLimit] = useState(GALLERY_PAGE_SIZE)
       const [confirmRemoveId, setConfirmRemoveId] = useState(null)
       const [reorderDragId, setReorderDragId] = useState(null)
       const [reorderOver, setReorderOver] = useState(null)
@@ -2809,6 +2879,11 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         ensureLoaded()
       }, [])
+
+      // A new filter, search term or image count starts the gallery at one page.
+      useEffect(() => {
+        setRenderLimit(GALLERY_PAGE_SIZE)
+      }, [state.searchQuery, state.tagFilter, state.board === null ? 0 : state.board.images.length])
 
       // Clipboard paste and the Esc selection shortcut are page-level: they only
       // listen while the Moodboard page is mounted, and never steal keys from a
@@ -3466,7 +3541,7 @@ window.__ModuleLoader__.load({
                 openLightbox(image, event.currentTarget)
               },
             },
-            h(Thumb, { image, alt: image.name }),
+            h(Thumb, { image, alt: image.name, lazy: true }),
           ),
           image.pinned
             ? h('span', { className: 'dsh-mb-pin-badge' }, h(IconPin, { size: 10 }), t('pinnedBadge'))
@@ -3761,7 +3836,17 @@ window.__ModuleLoader__.load({
                 { className: 'dsh-mb-hint', role: 'status' },
                 t(searchNeedle === '' ? 'noMatches' : 'searchNoMatches'),
               )
-            : h('ul', { className: 'dsh-mb-grid' }, filtered.map(renderCard)),
+            : h(
+                React.Fragment,
+                null,
+                h('ul', { className: 'dsh-mb-grid' }, filtered.slice(0, renderLimit).map(renderCard)),
+                h(LoadMore, {
+                  hasMore: filtered.length > renderLimit,
+                  onLoadMore: () => setRenderLimit((limit) => Math.min(limit + GALLERY_PAGE_SIZE, filtered.length)),
+                  text: t('showMore'),
+                  label: t('showMoreLabel'),
+                }),
+              ),
         )
 
       const renderLightbox = () => {

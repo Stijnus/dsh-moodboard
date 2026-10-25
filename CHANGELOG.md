@@ -10,6 +10,9 @@ All notable changes to this project are documented in this file.
   (⌘/Ctrl+Shift+A or the bulk bar's Invert action), with toolbar buttons and
   live status announcements; shortcuts stay inert in text fields, dialogs and
   the lightbox.
+- Gallery images load lazily near the viewport and the grid renders in pages
+  (`GALLERY_PAGE_SIZE`, auto-loading near the bottom), so large boards no
+  longer fetch every thumbnail up front.
 
 ## [0.2.2] - 2026-10-25
 

@@ -156,3 +156,17 @@ test('0.2.3 select-all and invert selection are wired', async () => {
     assert.ok(client.includes(anchor), `client source must reference ${anchor}`)
   }
 })
+
+test('0.2.3 lazy thumbnails and progressive gallery are wired', async () => {
+  const client = await read('client.js')
+  for (const anchor of [
+    'useInView',
+    'IntersectionObserver',
+    'GALLERY_PAGE_SIZE',
+    'function LoadMore',
+    'renderLimit',
+    'dsh-mb-thumb-frame',
+  ]) {
+    assert.ok(client.includes(anchor), `client source must reference ${anchor}`)
+  }
+})
