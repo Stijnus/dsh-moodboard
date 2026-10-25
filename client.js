@@ -193,6 +193,17 @@ window.__ModuleLoader__.load({
         bulkFailed: 'Bulk action failed: {message}',
 
         manageTags: 'Manage tags',
+        shortcutsOpenLabel: 'Keyboard shortcuts',
+        shortcutsTitle: 'Keyboard shortcuts',
+        shortcutsClose: 'Close keyboard shortcuts',
+        shortcutPaste: 'Paste images from the clipboard',
+        shortcutSearch: 'Focus the gallery search',
+        shortcutSelectAll: 'Select all visible images',
+        shortcutInvert: 'Invert the selection',
+        shortcutReorder: 'Move the focused card (no filter active)',
+        shortcutLightbox: 'Previous / next in the lightbox',
+        shortcutEscape: 'Clear the selection or close an overlay',
+        shortcutHelp: 'Open this shortcuts list',
         tagMergeList: 'Tags on this board',
         tagMergeSelect: 'Select the tag {tag} to merge',
         tagMergeTo: 'New tag name',
@@ -386,6 +397,17 @@ window.__ModuleLoader__.load({
         bulkFailed: '批量操作失败：{message}',
 
         manageTags: '管理标签',
+        shortcutsOpenLabel: '键盘快捷键',
+        shortcutsTitle: '键盘快捷键',
+        shortcutsClose: '关闭快捷键列表',
+        shortcutPaste: '从剪贴板粘贴图片',
+        shortcutSearch: '聚焦图片库搜索',
+        shortcutSelectAll: '全选当前显示的图片',
+        shortcutInvert: '反选',
+        shortcutReorder: '移动当前聚焦的卡片（无筛选时）',
+        shortcutLightbox: '在预览中切换上一张 / 下一张',
+        shortcutEscape: '清除选择或关闭浮层',
+        shortcutHelp: '打开本快捷键列表',
         tagMergeList: '灵感板上的标签',
         tagMergeSelect: '选择要合并的标签 {tag}',
         tagMergeTo: '新标签名称',
@@ -731,6 +753,8 @@ window.__ModuleLoader__.load({
     const imageUrlCache = new Map()
     const imageUrlInflight = new Map()
     let disposed = false
+    /** Card to focus after a keyboard reorder refresh re-renders the gallery. */
+    let pendingCardFocusId = null
 
     function loadImageUrl(key, url) {
       const cached = imageUrlCache.get(key)
@@ -1802,6 +1826,9 @@ window.__ModuleLoader__.load({
 .dsh-mb-thumb-btn img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .dsh-mb-thumb-frame { display: block; position: relative; width: 100%; height: 100%; }
 .dsh-mb-load-more { display: flex; justify-content: center; padding: 10px 0 2px; }
+.dsh-mb-shortcut-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.dsh-mb-shortcut-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
+.dsh-mb-shortcut-key { flex: none; padding: 2px 6px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 6px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; white-space: nowrap; }
 .dsh-mb-thumb-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-layer-2); }
 .dsh-mb-pin-badge { position: absolute; top: 6px; left: 6px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; background: var(--dsw-alias-bg-overlay); color: var(--dsw-alias-label-primary); font-size: 11px; line-height: 1.4; }
 .dsh-mb-card-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 6px 8px 8px; }
@@ -2035,6 +2062,30 @@ window.__ModuleLoader__.load({
           strokeLinejoin: 'round',
           fill: 'none',
         }),
+      )
+    }
+
+    function IconHelp(props) {
+      const size = typeof props.size === 'number' ? props.size : 14
+      return h(
+        'svg',
+        { width: size, height: size, viewBox: '0 0 12 12', 'aria-hidden': 'true', focusable: 'false' },
+        h('circle', {
+          cx: 6,
+          cy: 6,
+          r: 4.7,
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1.3,
+        }),
+        h('path', {
+          d: 'M4.8 4.6c0-.8.6-1.4 1.4-1.4s1.4.5 1.4 1.3c0 .7-.4 1-1 1.4-.5.3-.7.6-.7 1.1',
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1.2,
+          strokeLinecap: 'round',
+        }),
+        h('circle', { cx: 5.9, cy: 8.7, r: 0.65, fill: 'currentColor' }),
       )
     }
 
@@ -2841,6 +2892,119 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /** Modal list of keyboard shortcuts; Esc/backdrop/close restore the opener. */
+    function ShortcutsDialog(props) {
+      const t = getTranslator(props)
+      const dialogRef = useRef(null)
+      const closeRef = useRef(null)
+      const headingId = 'dsh-mb-shortcuts-title'
+      useEffect(() => {
+        const closeButton = closeRef.current
+        if (closeButton !== null) closeButton.focus()
+        return () => {
+          const opener = props.openerRef === null || props.openerRef === undefined ? null : props.openerRef.current
+          if (opener !== null && opener !== undefined && opener.isConnected === true) opener.focus()
+        }
+      }, [])
+      useEffect(() => {
+        const onDocumentKeyDown = (event) => {
+          if (event === null || event === undefined || event.key !== 'Escape') return
+          if (event.defaultPrevented) return
+          event.preventDefault()
+          props.onClose()
+        }
+        document.addEventListener('keydown', onDocumentKeyDown)
+        return () => document.removeEventListener('keydown', onDocumentKeyDown)
+      }, [])
+      const onKeyDown = (event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          props.onClose()
+          return
+        }
+        if (event.key !== 'Tab') return
+        const dialog = dialogRef.current
+        if (dialog === null) return
+        const nodes = Array.prototype.filter.call(
+          dialog.querySelectorAll('button, [href], input, select, textarea'),
+          (node) => node.disabled !== true && node.getClientRects().length > 0,
+        )
+        if (nodes.length === 0) return
+        const first = nodes[0]
+        const last = nodes[nodes.length - 1]
+        if (event.shiftKey === true && document.activeElement === first) {
+          event.preventDefault()
+          last.focus()
+        } else if (event.shiftKey !== true && document.activeElement === last) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
+      const rows = [
+        ['shortcutPaste', '⌘V / Ctrl+V'],
+        ['shortcutSearch', '/'],
+        ['shortcutSelectAll', '⌘A / Ctrl+A'],
+        ['shortcutInvert', '⌘⇧A / Ctrl+Shift+A'],
+        ['shortcutReorder', 'Alt + ← / →'],
+        ['shortcutLightbox', '← / →'],
+        ['shortcutEscape', 'Esc'],
+        ['shortcutHelp', '?'],
+      ]
+      return h(
+        'div',
+        {
+          className: 'dsh-mb-merge-overlay',
+          onClick: (event) => {
+            if (event.target === event.currentTarget) props.onClose()
+          },
+          onKeyDown,
+        },
+        h(
+          'div',
+          {
+            ref: dialogRef,
+            className: 'dsh-mb-merge-dialog',
+            role: 'dialog',
+            'aria-modal': 'true',
+            'aria-labelledby': headingId,
+          },
+          h(
+            'div',
+            { className: 'dsh-mb-merge-head' },
+            h('h2', { id: headingId, className: 'dsh-mb-merge-title' }, t('shortcutsTitle')),
+            h(
+              'button',
+              {
+                ref: closeRef,
+                type: 'button',
+                className: 'dsh-mb-btn dsh-mb-btn--icon',
+                'aria-label': t('shortcutsClose'),
+                title: t('shortcutsClose'),
+                onClick: props.onClose,
+              },
+              h(IconClose, { size: 12 }),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'dsh-mb-merge-body' },
+            h(
+              'ul',
+              { className: 'dsh-mb-shortcut-list' },
+              rows.map(([label, key]) =>
+                h(
+                  'li',
+                  { key: label, className: 'dsh-mb-shortcut-row' },
+                  h('span', null, t(label)),
+                  h('kbd', { className: 'dsh-mb-shortcut-key' }, key),
+                ),
+              ),
+            ),
+          ),
+        ),
+      )
+    }
+
     // ---------------------------------------------------------------------------
     // Panel page
     // ---------------------------------------------------------------------------
@@ -2860,6 +3024,7 @@ window.__ModuleLoader__.load({
       const [bulkConfirmRemove, setBulkConfirmRemove] = useState(false)
       const [lightboxId, setLightboxId] = useState(null)
       const [mergeOpen, setMergeOpen] = useState(false)
+      const [helpOpen, setHelpOpen] = useState(false)
       const dragDepth = useRef(0)
       const fileInputRef = useRef(null)
       const replaceInputRef = useRef(null)
@@ -2873,8 +3038,11 @@ window.__ModuleLoader__.load({
       const mergeOpenRef = useRef(false)
       const mergeOpenerRef = useRef(null)
       const clickSelectionRef = useRef(null)
+      const helpOpenRef = useRef(false)
+      const helpOpenerRef = useRef(null)
       const visibleIdsRef = useRef([])
       mergeOpenRef.current = mergeOpen
+      helpOpenRef.current = helpOpen
 
       useEffect(() => {
         ensureLoaded()
@@ -2885,14 +3053,40 @@ window.__ModuleLoader__.load({
         setRenderLimit(GALLERY_PAGE_SIZE)
       }, [state.searchQuery, state.tagFilter, state.board === null ? 0 : state.board.images.length])
 
+      // '?' opens the shortcut list and '/' focuses the gallery search; both
+      // stay inert while a field, dialog or the lightbox owns the keyboard.
+      useEffect(() => {
+        if (helpOpen) return undefined
+        const onKey = (event) => {
+          if (event === null || event === undefined || event.defaultPrevented) return
+          if (event.metaKey === true || event.ctrlKey === true || event.altKey === true) return
+          if (mergeOpenRef.current || lightboxIdRef.current !== null) return
+          if (isEditableTarget(event.target)) return
+          if (event.key === '?') {
+            event.preventDefault()
+            const opener = document.activeElement
+            helpOpenerRef.current = opener === undefined ? null : opener
+            setHelpOpen(true)
+            return
+          }
+          if (event.key === '/') {
+            event.preventDefault()
+            const input = searchInputRef.current
+            if (input !== null) input.focus()
+          }
+        }
+        document.addEventListener('keydown', onKey)
+        return () => document.removeEventListener('keydown', onKey)
+      }, [helpOpen])
+
       // Clipboard paste and the Esc selection shortcut are page-level: they only
       // listen while the Moodboard page is mounted, and never steal keys from a
       // focused field (name/notes/tag inputs, the composer editor, search).
       useEffect(() => {
         const onPaste = (event) => {
           if (event === null || event === undefined) return
-          // The tag manager dialog owns the page while it is open.
-          if (mergeOpenRef.current) return
+          // The tag manager / shortcuts dialogs own the page while open.
+          if (mergeOpenRef.current || helpOpenRef.current) return
           const clipboard = event.clipboardData
           if (clipboard === null || clipboard === undefined) return
           if (isEditableTarget(event.target)) return
@@ -2906,7 +3100,7 @@ window.__ModuleLoader__.load({
           if (event.defaultPrevented) return
           const modified = event.metaKey === true || event.ctrlKey === true
           if (modified && event.altKey !== true && (event.key === 'a' || event.key === 'A')) {
-            if (mergeOpenRef.current) return
+            if (mergeOpenRef.current || helpOpenRef.current) return
             if (lightboxIdRef.current !== null) return
             if (isEditableTarget(event.target)) return
             if (getSnapshot().pendingSelectId !== undefined) return
@@ -2921,8 +3115,8 @@ window.__ModuleLoader__.load({
             return
           }
           if (event.key !== 'Escape') return
-          // The merge dialog owns Esc while it is open (its own handler closes it).
-          if (mergeOpenRef.current) return
+          // Dialog overlays own Esc while they are open (their handlers close them).
+          if (mergeOpenRef.current || helpOpenRef.current) return
           // The lightbox owns Esc while it is open (its own handler closes it).
           if (lightboxIdRef.current !== null) return
           if (isEditableTarget(event.target)) return
@@ -3483,6 +3677,22 @@ window.__ModuleLoader__.load({
         )
       }
 
+      /** Move one card by keyboard and keep focus on it after the refresh. */
+      async function moveCardByKeyboard(imageId, offset) {
+        if (!canReorder) {
+          setStatus(msg(searchNeedle !== '' ? 'reorderSearchHint' : 'reorderFilteredHint'))
+          return
+        }
+        const ids = images.map((image) => image.id)
+        const index = ids.indexOf(imageId)
+        const target = index + offset
+        if (index === -1 || target < 0 || target >= ids.length) return
+        ids.splice(index, 1)
+        ids.splice(target, 0, imageId)
+        pendingCardFocusId = imageId
+        await reorderImages(ids)
+      }
+
       const renderCard = (image) => {
         const selected = state.selectedIds.indexOf(image.id) !== -1
         const confirming = confirmRemoveId === image.id
@@ -3510,6 +3720,20 @@ window.__ModuleLoader__.load({
               className: 'dsh-mb-thumb-btn',
               'aria-pressed': selected ? 'true' : 'false',
               'aria-label': t('selectImage', { name: image.name }),
+              'aria-keyshortcuts': canReorder ? 'Alt+ArrowLeft Alt+ArrowRight' : undefined,
+              ref: (node) => {
+                if (node !== null && pendingCardFocusId === image.id) {
+                  pendingCardFocusId = null
+                  node.focus()
+                }
+              },
+              onKeyDown: (event) => {
+                if (event.altKey !== true || event.ctrlKey === true || event.metaKey === true) return
+                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+                event.preventDefault()
+                event.stopPropagation()
+                void moveCardByKeyboard(image.id, event.key === 'ArrowLeft' ? -1 : 1)
+              },
               onClick: (event) => {
                 // Remember the selection on the first click of a possible
                 // double-click so opening the lightbox can leave it untouched.
@@ -4024,6 +4248,21 @@ window.__ModuleLoader__.load({
           { className: 'dsh-mb-header-actions' },
           h(
             'button',
+            {
+              type: 'button',
+              className: 'dsh-mb-btn dsh-mb-btn--icon',
+              'aria-label': t('shortcutsOpenLabel'),
+              title: t('shortcutsOpenLabel'),
+              'aria-haspopup': 'dialog',
+              onClick: (event) => {
+                helpOpenerRef.current = event.currentTarget
+                setHelpOpen(true)
+              },
+            },
+            h(IconHelp, { size: 14 }),
+          ),
+          h(
+            'button',
             { type: 'button', className: 'dsh-mb-btn', disabled: copying, onClick: onCopyBrief },
             copying ? t('copyingBrief') : t('copyBrief'),
           ),
@@ -4196,6 +4435,9 @@ window.__ModuleLoader__.load({
         uploads,
         h('div', { className: 'dsh-mb-body' }, h('div', { className: 'dsh-mb-main' }, renderMain()), detailsPanel),
         renderLightbox(),
+        helpOpen
+          ? h(ShortcutsDialog, { t, onClose: () => setHelpOpen(false), openerRef: helpOpenerRef })
+          : null,
         mergeOpen
           ? h(TagMergeDialog, {
               board,

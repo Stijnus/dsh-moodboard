@@ -13,6 +13,9 @@ All notable changes to this project are documented in this file.
 - Gallery images load lazily near the viewport and the grid renders in pages
   (`GALLERY_PAGE_SIZE`, auto-loading near the bottom), so large boards no
   longer fetch every thumbnail up front.
+- Keyboard ordering: `Alt+←/→` on a focused card moves it (focus follows the
+  card after the refresh), `/` focuses the gallery search, and `?` opens a
+  localized shortcuts dialog.
 
 ## [0.2.2] - 2026-10-25
 

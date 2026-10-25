@@ -170,3 +170,16 @@ test('0.2.3 lazy thumbnails and progressive gallery are wired', async () => {
     assert.ok(client.includes(anchor), `client source must reference ${anchor}`)
   }
 })
+
+test('0.2.3 keyboard reorder and shortcut help are wired', async () => {
+  const client = await read('client.js')
+  for (const anchor of [
+    'ShortcutsDialog',
+    'shortcutReorder',
+    'pendingCardFocusId',
+    'aria-keyshortcuts',
+    'moveCardByKeyboard',
+  ]) {
+    assert.ok(client.includes(anchor), `client source must reference ${anchor}`)
+  }
+})
