@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.2.6 — 2026-10-25
+
+### Fixed
+
+- Image URLs now carry the attachment revision (`?v=<attachmentId>`). A request
+  for a revision that is no longer on the board answers 404 instead of serving
+  different bytes, and only versioned responses are cached `immutable`;
+  unversioned requests answer `no-store`.
+- The gallery revokes an object URL when a board refresh replaces or removes the
+  image, and discards an in-flight load that resolves after the image left the
+  board, so a stale thumbnail can no longer repopulate the cache.
+- Switching references no longer shows the previous image while the new one
+  decodes.
+- The metadata editor compares against the last loaded revision, so a server
+  update is adopted while genuinely unsaved edits keep Save offered.
+- Re-mounting the plugin after disposal no longer leaves the client disposed.
+
+### Changed
+
+- `get` returns complete notes, tags and source URL. `active` and `query`
+  overviews now include reference IDs and point at `get`/`list` for full
+  metadata; `list` lines carry the id.
+
+### Added
+
+- Behavior tests for revision-scoped image URLs, complete `get` metadata, client
+  cache release, in-flight cancellation and the editor dirty baseline, plus two
+  reference fixtures and `docs/LIVE-TEST.md` recording the manual verification.
+
 ## 0.2.5 — 2026-10-25
 
 - Block reads and writes after an initial board load failure instead of replacing existing data with an empty board.
