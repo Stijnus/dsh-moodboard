@@ -14,11 +14,13 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- Modernized the Moodboard panel with a warm walnut-and-amber design language
-  derived from the board's reference art direction: a hero-style active style
-  guide, sticky search/tag toolbar, uniform gallery
-  cards with hover actions and an explicit selection check, and a sticky
-  inspector footer.
+- Modernized the Moodboard panel with harness-native styling: surfaces,
+  borders, text, buttons, inputs and links now come from DSH theme tokens
+  (light and dark), and the only custom colour is a low-saturation warm tint
+  used sparingly on the active style-guide surface and pinned affordances.
+  The panel gains a hero-style active style guide, sticky search/tag toolbar,
+  uniform gallery cards with hover actions and an explicit selection check,
+  and a sticky inspector footer.
 - Removed the permanent drop zone: upload is available from the header and
   empty state, and a full-panel drag overlay appears only while dragging.
 - Multi-select now uses a floating bottom command bar and appears only for two

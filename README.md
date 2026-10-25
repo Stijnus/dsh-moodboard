@@ -11,20 +11,21 @@ inspiration images in the Web UI, tag and annotate them, pin the ones that
 define your app's visual language, and let the agent read that style guide
 before it generates or restyles UI.
 
-![A moodboard panel with a warm active style-guide hero, filterable gallery and image inspector](https://raw.githubusercontent.com/Stijnus/dsh-moodboard/main/docs/panel.png)
+![A moodboard panel with an active style-guide hero, filterable gallery and image inspector](https://raw.githubusercontent.com/Stijnus/dsh-moodboard/main/docs/panel.png)
 
 ## What you get
 
 - **Moodboard panel** in the Web UI (sidebar icon): drag-and-drop, clipboard
   paste or file-picker upload; gallery of thumbnails with drag-to-reorder and
   multi-select bulk actions; tag filter; and an active style-guide strip.
-- **Modern, theme-aware UI**: a warm walnut/amber visual language built on DSH
-  theme tokens (light and dark), hero-style active style guide, sticky search/filter
-  toolbar, icon-only card actions with hover
-  affordances, a floating multi-select command bar, a sticky inspector footer
-  and a bottom-sheet inspector on narrow screens. Motion honours
-  `prefers-reduced-motion`; focus rings, live regions and labelled controls are
-  preserved.
+- **Modern, theme-aware UI**: harness-native styling built entirely on DSH
+  theme tokens (surfaces, borders, text, buttons, inputs, links), with warm
+  accents kept to a subtle tint on the active style-guide surface and pinned
+  affordances. Includes a hero-style active style guide, sticky search/filter
+  toolbar, icon-only card actions with hover affordances, a floating
+  multi-select command bar, a sticky inspector footer and a bottom-sheet
+  inspector on narrow screens. Motion honours `prefers-reduced-motion`; focus
+  rings, live regions and labelled controls are preserved.
 - **Capture**: drop files from Finder, paste images with ⌘V/Ctrl+V, or use the
   Paste / Add images buttons. Every image is downscaled and stored durably.
 - **Organize**: drag cards to set the gallery order, Shift/Cmd-click to select
