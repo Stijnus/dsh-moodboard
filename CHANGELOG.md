@@ -6,8 +6,9 @@
 
 - Renamed the npm package from `@stijnus/dsh-moodboard` to `dsh-moodboard`, in
   line with the other DSH plugins. The bundle row, client plugin id and install
-  instructions changed with it; `@stijnus/dsh-moodboard` is deprecated on npm and
-  reports the new name. No behaviour changed.
+  instructions changed with it. `@stijnus/dsh-moodboard` no longer resolves on
+  npm (it was unpublished, so old pins return 404 — install `dsh-moodboard`).
+  No behaviour changed.
 
 ## 0.2.6 — 2026-10-25
 

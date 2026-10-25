@@ -69,6 +69,12 @@ the browser half needs the slots and locale services).
 
 ## Install
 
+> **Renamed in 0.2.7.** This plugin publishes as `dsh-moodboard`. The earlier
+> scoped name `@stijnus/dsh-moodboard` was unpublished, so pins to it now return
+> 404 — install `dsh-moodboard` and remove the old entry from your profile.
+
+Unpublished earlier name aside, installation is one command:
+
 From npm once a release is published, through the Plugins page or
 `plugin_manager install_bundle`:
 
