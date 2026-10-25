@@ -178,7 +178,20 @@ test('0.2.3 keyboard reorder and shortcut help are wired', async () => {
     'shortcutReorder',
     'pendingCardFocusId',
     'aria-keyshortcuts',
-    'moveCardByKeyboard',
+    'moveCardByOffset',
+  ]) {
+    assert.ok(client.includes(anchor), `client source must reference ${anchor}`)
+  }
+})
+
+test('0.2.3 drag end zone and move fallback are wired', async () => {
+  const client = await read('client.js')
+  for (const anchor of [
+    'onEndDrop',
+    'reorderCancelled',
+    'moveLeftLabel',
+    'moveCardByOffset',
+    'dsh-mb-drop-end',
   ]) {
     assert.ok(client.includes(anchor), `client source must reference ${anchor}`)
   }

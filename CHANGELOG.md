@@ -16,6 +16,9 @@ All notable changes to this project are documented in this file.
 - Keyboard ordering: `Alt+←/→` on a focused card moves it (focus follows the
   card after the refresh), `/` focuses the gallery search, and `?` opens a
   localized shortcuts dialog.
+- Drag edge cases: a drag-time drop zone moves a card to the end, Escape
+  cancels an in-flight drag, and Move left/right buttons in the details panel
+  give a touch/accessible alternative to drag-and-drop.
 
 ## [0.2.2] - 2026-10-25
 

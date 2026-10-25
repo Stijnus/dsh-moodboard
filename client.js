@@ -193,6 +193,12 @@ window.__ModuleLoader__.load({
         bulkFailed: 'Bulk action failed: {message}',
 
         manageTags: 'Manage tags',
+        moveLeft: 'Move left',
+        moveRight: 'Move right',
+        moveLeftLabel: 'Move {name} left',
+        moveRightLabel: 'Move {name} right',
+        reorderCancelled: 'Reorder cancelled',
+        dropEnd: 'Drop to move to the end',
         shortcutsOpenLabel: 'Keyboard shortcuts',
         shortcutsTitle: 'Keyboard shortcuts',
         shortcutsClose: 'Close keyboard shortcuts',
@@ -397,6 +403,12 @@ window.__ModuleLoader__.load({
         bulkFailed: '批量操作失败：{message}',
 
         manageTags: '管理标签',
+        moveLeft: '左移',
+        moveRight: '右移',
+        moveLeftLabel: '将 {name} 左移',
+        moveRightLabel: '将 {name} 右移',
+        reorderCancelled: '已取消排序',
+        dropEnd: '拖到此处移到末尾',
         shortcutsOpenLabel: '键盘快捷键',
         shortcutsTitle: '键盘快捷键',
         shortcutsClose: '关闭快捷键列表',
@@ -1826,6 +1838,7 @@ window.__ModuleLoader__.load({
 .dsh-mb-thumb-btn img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .dsh-mb-thumb-frame { display: block; position: relative; width: 100%; height: 100%; }
 .dsh-mb-load-more { display: flex; justify-content: center; padding: 10px 0 2px; }
+.dsh-mb-drop-end { margin-top: 10px; padding: 12px; border: 1px dashed var(--dsw-alias-brand-primary); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-secondary); font-size: 12px; text-align: center; }
 .dsh-mb-shortcut-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .dsh-mb-shortcut-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
 .dsh-mb-shortcut-key { flex: none; padding: 2px 6px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 6px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; white-space: nowrap; }
@@ -2522,6 +2535,30 @@ window.__ModuleLoader__.load({
             {
               type: 'button',
               className: 'dsh-mb-btn',
+              disabled: saving || removing || props.mutating || !props.canMove,
+              title: t('moveLeftLabel', { name: image.name }),
+              'aria-label': t('moveLeftLabel', { name: image.name }),
+              onClick: () => props.onMove(-1),
+            },
+            t('moveLeft'),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-mb-btn',
+              disabled: saving || removing || props.mutating || !props.canMove,
+              title: t('moveRightLabel', { name: image.name }),
+              'aria-label': t('moveRightLabel', { name: image.name }),
+              onClick: () => props.onMove(1),
+            },
+            t('moveRight'),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-mb-btn',
               disabled: saving || replaceBusy || removing,
               onClick: requestReplace,
             },
@@ -3039,10 +3076,12 @@ window.__ModuleLoader__.load({
       const mergeOpenerRef = useRef(null)
       const clickSelectionRef = useRef(null)
       const helpOpenRef = useRef(false)
+      const reorderDragIdRef = useRef(null)
       const helpOpenerRef = useRef(null)
       const visibleIdsRef = useRef([])
       mergeOpenRef.current = mergeOpen
       helpOpenRef.current = helpOpen
+      reorderDragIdRef.current = reorderDragId
 
       useEffect(() => {
         ensureLoaded()
@@ -3115,6 +3154,13 @@ window.__ModuleLoader__.load({
             return
           }
           if (event.key !== 'Escape') return
+          if (reorderDragIdRef.current !== null) {
+            event.preventDefault()
+            setReorderDragId(null)
+            setReorderOver(null)
+            setStatus(msg('reorderCancelled'))
+            return
+          }
           // Dialog overlays own Esc while they are open (their handlers close them).
           if (mergeOpenRef.current || helpOpenRef.current) return
           // The lightbox owns Esc while it is open (its own handler closes it).
@@ -3319,6 +3365,21 @@ window.__ModuleLoader__.load({
         }
       }
 
+      /** Read the dragged image id from the internal drag payload. */
+      const readDraggedId = (event, fallback) => {
+        let draggedId = fallback === undefined ? null : fallback
+        const transfer = event.dataTransfer
+        if (transfer !== null && transfer !== undefined) {
+          try {
+            const data = transfer.getData(DRAG_ID_TYPE)
+            if (typeof data === 'string' && data !== '') draggedId = data
+          } catch (error) {
+            // Fall back to the drag-start id kept in state.
+          }
+        }
+        return draggedId
+      }
+
       const onCardDragStart = (event, image) => {
         if (!canReorder) {
           event.preventDefault()
@@ -3364,16 +3425,7 @@ window.__ModuleLoader__.load({
         if (!hasInternalDrag(event) && reorderDragId === null) return
         event.preventDefault()
         event.stopPropagation()
-        let draggedId = reorderDragId
-        const transfer = event.dataTransfer
-        if (transfer !== null && transfer !== undefined) {
-          try {
-            const data = transfer.getData(DRAG_ID_TYPE)
-            if (typeof data === 'string' && data !== '') draggedId = data
-          } catch (error) {
-            // Fall back to the drag-start id kept in state.
-          }
-        }
+        const draggedId = readDraggedId(event, reorderDragId)
         const targetAfter = reorderOver !== null && reorderOver.id === image.id ? reorderOver.after : false
         setReorderDragId(null)
         setReorderOver(null)
@@ -3391,6 +3443,30 @@ window.__ModuleLoader__.load({
       const onCardDragEnd = () => {
         setReorderDragId(null)
         setReorderOver(null)
+      }
+
+      const onEndDrop = (event) => {
+        if (!canReorder) return
+        if (!hasInternalDrag(event) && reorderDragId === null) return
+        event.preventDefault()
+        event.stopPropagation()
+        const draggedId = readDraggedId(event, reorderDragId)
+        setReorderDragId(null)
+        setReorderOver(null)
+        if (draggedId === null || draggedId === undefined) return
+        const ids = images.map((image) => image.id).filter((id) => id !== draggedId)
+        if (!ids.length && images.length <= 1) return
+        ids.push(draggedId)
+        void reorderImages(ids)
+      }
+
+      const onEndDragOver = (event) => {
+        if (!canReorder) return
+        if (!hasInternalDrag(event) && reorderDragId === null) return
+        event.preventDefault()
+        event.stopPropagation()
+        const transfer = event.dataTransfer
+        if (transfer !== null && transfer !== undefined) transfer.dropEffect = 'move'
       }
 
       const onDragEnter = (event) => {
@@ -3678,7 +3754,7 @@ window.__ModuleLoader__.load({
       }
 
       /** Move one card by keyboard and keep focus on it after the refresh. */
-      async function moveCardByKeyboard(imageId, offset) {
+      async function moveCardByOffset(imageId, offset) {
         if (!canReorder) {
           setStatus(msg(searchNeedle !== '' ? 'reorderSearchHint' : 'reorderFilteredHint'))
           return
@@ -3732,7 +3808,7 @@ window.__ModuleLoader__.load({
                 if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
                 event.preventDefault()
                 event.stopPropagation()
-                void moveCardByKeyboard(image.id, event.key === 'ArrowLeft' ? -1 : 1)
+                void moveCardByOffset(image.id, event.key === 'ArrowLeft' ? -1 : 1)
               },
               onClick: (event) => {
                 // Remember the selection on the first click of a possible
@@ -4064,6 +4140,17 @@ window.__ModuleLoader__.load({
                 React.Fragment,
                 null,
                 h('ul', { className: 'dsh-mb-grid' }, filtered.slice(0, renderLimit).map(renderCard)),
+                canReorder && reorderDragId !== null
+                  ? h(
+                      'div',
+                      {
+                        className: 'dsh-mb-drop-end',
+                        onDragOver: onEndDragOver,
+                        onDrop: onEndDrop,
+                      },
+                      t('dropEnd'),
+                    )
+                  : null,
                 h(LoadMore, {
                   hasMore: filtered.length > renderLimit,
                   onLoadMore: () => setRenderLimit((limit) => Math.min(limit + GALLERY_PAGE_SIZE, filtered.length)),
@@ -4399,6 +4486,10 @@ window.__ModuleLoader__.load({
                 image: selectedImage,
                 t,
                 mutating: state.mutating,
+                canMove: canReorder,
+                onMove: (offset) => {
+                  void moveCardByOffset(selectedImage.id, offset)
+                },
                 onClose: closeDetails,
               }),
             )
