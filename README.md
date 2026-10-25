@@ -1,5 +1,11 @@
 # dsh-moodboard
 
+[![npm version](https://img.shields.io/npm/v/@stijnus/dsh-moodboard.svg)](https://www.npmjs.com/package/@stijnus/dsh-moodboard)
+[![provenance: signed](https://img.shields.io/badge/provenance-signed-brightgreen)](https://www.npmjs.com/package/@stijnus/dsh-moodboard)
+[![test](https://github.com/Stijnus/dsh-moodboard/actions/workflows/test.yml/badge.svg)](https://github.com/Stijnus/dsh-moodboard/actions/workflows/test.yml)
+[![release](https://github.com/Stijnus/dsh-moodboard/actions/workflows/release.yml/badge.svg)](https://github.com/Stijnus/dsh-moodboard/actions/workflows/release.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A **visual reference moodboard** for DeepSeek Harness. Collect screenshots and
 inspiration images in the Web UI, tag and annotate them, pin the ones that
 define your app's visual language, and let the agent read that style guide
@@ -128,9 +134,31 @@ light/dark switching. Image thumbnails are the user's own artwork.
 - The HTTP endpoints are owner-authenticated for same-origin/browser callers.
   A bash/curl caller has no session cookie — use the `moodboard` tool instead.
 
-## Releasing
+## Releases and provenance
 
-Tag-driven npm release with provenance; see [RELEASING.md](RELEASING.md) and
+Releases are tag-driven and published from GitHub Actions using npm
+**trusted publishing** (OIDC). No long-lived npm token is stored in the
+repository: npm only accepts a publish from this repository's `release.yml`
+workflow at a tagged commit, and the short-lived credential minted for that run
+cannot be reused elsewhere.
+
+Every release from `0.1.1` onward is published with a provenance attestation
+that binds the tarball to this repository, the workflow file, and the commit.
+The npm package page shows the **Provenance** badge for those versions.
+`0.1.0` was published manually before the publisher was configured, so it has
+no attestation.
+
+Verify a release:
+
+```bash
+npm view @stijnus/dsh-moodboard@<version> dist.attestations
+npm view @stijnus/dsh-moodboard@<version> dist.integrity
+```
+
+The attestation URL resolves to the signed in-toto statement; the matching
+Sigstore transparency-log entry is printed in the release workflow log. The
+one-time publisher setup, tag/release steps, and post-publish checks are in
+[RELEASING.md](RELEASING.md); version history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 ## License
