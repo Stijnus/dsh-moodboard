@@ -13,7 +13,7 @@ inspiration images in the Web UI, tag and annotate them, pin the ones that
 define your app's visual language, and let the agent read that style guide
 before it generates or restyles UI.
 
-![A moodboard panel with an active style-guide hero, filterable gallery and image inspector](https://raw.githubusercontent.com/Stijnus/dsh-moodboard/main/docs/panel.png)
+![Moodboard panel: the pinned active style guide the agent reads, and the tagged reference gallery](https://raw.githubusercontent.com/Stijnus/dsh-moodboard/main/docs/panel.jpg)
 
 ## Quick start
 
