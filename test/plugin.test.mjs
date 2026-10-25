@@ -123,3 +123,23 @@ test('0.2.1 search and lightbox are wired', async () => {
     assert.ok(client.includes(anchor), `client source must reference ${anchor}`)
   }
 })
+
+test('0.2.2 tag merge endpoint is wired', async () => {
+  const host = await read('index.js')
+  for (const anchor of ['/api/tags/merge', 'handleMergeTags', 'requireMergeTag']) {
+    assert.ok(host.includes(anchor), `host source must reference ${anchor}`)
+  }
+})
+
+test('0.2.2 tag autocomplete, metadata clipboard and palette are wired', async () => {
+  const client = await read('client.js')
+  for (const anchor of [
+    'dsh-mb-tag-suggestions',
+    'metadataClipboard',
+    '/moodboard/api/tags/merge',
+    'dsh-mb-palette',
+    'TagMergeDialog',
+  ]) {
+    assert.ok(client.includes(anchor), `client source must reference ${anchor}`)
+  }
+})

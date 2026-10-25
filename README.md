@@ -25,6 +25,12 @@ before it generates or restyles UI.
 - **Find & inspect**: search by name, tags, notes or source (combinable with
   the tag filter), and open any reference in a full-size lightbox with
   previous/next navigation and keyboard support.
+- **Tag smartness**: autocomplete from the tags already on the board, and a
+  tag manager that renames or merges a tag across every reference (with
+  per-tag counts).
+- **Reuse & palette**: copy tags/notes/source from one reference and paste them
+  into another; a palette strip extracts dominant colors from the references
+  (click a swatch to copy its hex).
 - **Per-image metadata**: tags, notes, source URL, name — editable in a
   metadata panel, with pin / replace / remove actions.
 - **Active style guide**: pin one or more references. The agent treats pinned
@@ -116,6 +122,7 @@ the tool; these endpoints exist for the panel and for programmatic reads:
 | `DELETE /moodboard/api/images/<id>` | remove |
 | `POST /moodboard/api/images/reorder` | set the complete gallery order `{ ids: [...] }` |
 | `POST /moodboard/api/images/bulk` | bulk `{ ids, pinned?, addTags?, removeTags?, delete? }` |
+| `POST /moodboard/api/tags/merge` | rename/merge `{ from, to }` across the board |
 | `GET /moodboard/api/active` | active guide with tags/notes/sources/brief |
 | `GET /moodboard/api/query?tag=…&match=any` | tag lookup |
 | `GET /moodboard/api/health` | liveness + image count |

@@ -496,6 +496,11 @@ async function dispatch(store, ctx, request, response, method, segments, url) {
     }
   }
 
+  if (segments.length === 3 && segments[1] === 'tags' && segments[2] === 'merge') {
+    requireMethod(method, 'POST')
+    return handleMergeTags(store, request, response)
+  }
+
   if (segments.length === 3 && segments[1] === 'images') {
     if (segments[2] === 'reorder') {
       requireMethod(method, 'POST')
@@ -711,6 +716,42 @@ async function handleBulkImages(store, request, response) {
   })
 
   sendJson(response, 200, { ok: true, updated: result.updated, removed: result.removed })
+}
+
+/** `POST /api/tags/merge` — rename or merge one tag across the whole board. */
+async function handleMergeTags(store, request, response) {
+  const body = await readJsonBody(request, MAX_PATCH_BODY_BYTES, 'invalid-body')
+  const from = requireMergeTag(body.from, 'from')
+  const to = requireMergeTag(body.to, 'to')
+  if (from.toLowerCase() === to.toLowerCase()) {
+    sendJson(response, 200, { ok: true, updated: 0 })
+    return
+  }
+
+  let updated = 0
+  await store.mutate((draft) => {
+    const needle = from.toLowerCase()
+    const now = new Date().toISOString()
+    let touched = 0
+    for (const image of draft.images) {
+      if (!image.tags.some((tag) => tag.toLowerCase() === needle)) continue
+      const next = []
+      const seen = new Set()
+      for (const tag of image.tags) {
+        const value = tag.toLowerCase() === needle ? to : tag
+        const key = value.toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        next.push(value)
+      }
+      image.tags = next
+      image.updatedAt = now
+      touched += 1
+    }
+    updated = touched
+  })
+
+  sendJson(response, 200, { ok: true, updated })
 }
 
 /** `GET /image/<id>` — raw normalized bytes with immutable caching. */
@@ -955,6 +996,14 @@ function requireIdList(value) {
 function requireDeleteFlag(value) {
   if (typeof value !== 'boolean') throw httpError('invalid-body', 'delete must be a boolean')
   return value
+}
+
+/** Validate a tag name for the tag merge endpoint. */
+function requireMergeTag(value, field) {
+  if (typeof value !== 'string') throw httpError('invalid-body', `${field} must be a string`)
+  const tag = value.trim().slice(0, MAX_TAG_CHARS)
+  if (tag === '') throw httpError('invalid-body', `${field} must be a non-empty tag`)
+  return tag
 }
 
 /** Read a PATCH body into a validated patch object (at least one known field). */

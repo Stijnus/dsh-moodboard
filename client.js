@@ -28,6 +28,7 @@ window.__ModuleLoader__.load({
     const API_ROOT = '/moodboard/api'
     const REORDER_PATH = '/moodboard/api/images/reorder'
     const BULK_PATH = '/moodboard/api/images/bulk'
+    const TAGS_MERGE_PATH = '/moodboard/api/tags/merge'
     const MAX_FILE_BYTES = 25 * 1024 * 1024
     const MAX_EDGE = 1600
     const ENCODE_QUALITY = 0.85
@@ -39,6 +40,7 @@ window.__ModuleLoader__.load({
     const MAX_SOURCE_URL_LENGTH = 2000
     const MAX_ERROR_CHARS = 320
     const DRAG_ID_TYPE = 'application/x-moodboard-id'
+    const TAG_SUGGESTIONS_ID = 'dsh-mb-tag-suggestions'
     const LIGHTBOX_FOCUSABLE =
       'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
@@ -182,6 +184,25 @@ window.__ModuleLoader__.load({
         bulkRemoved: 'Removed selection ({count})',
         bulkFailed: 'Bulk action failed: {message}',
 
+        manageTags: 'Manage tags',
+        tagMergeList: 'Tags on this board',
+        tagMergeSelect: 'Select the tag {tag} to merge',
+        tagMergeTo: 'New tag name',
+        tagMergePlaceholder: 'Type the new tag name',
+        tagMergeAction: 'Merge',
+        tagMergeBusy: 'Merging…',
+        tagMergeHint: 'The selected tag is replaced by the new name on every image.',
+        tagMergeEmpty: 'There are no tags to manage yet.',
+        tagMergeDone: 'Merged “{from}” into “{to}” — {count} updated.',
+        tagMergeFailed: 'Could not merge tags: {message}',
+        tagMergeClose: 'Close tag manager',
+
+        palette: 'Palette',
+        paletteHint: 'Dominant colors from this board',
+        paletteSwatch: 'Copy {hex}',
+        paletteCopied: 'Copied {hex}',
+        paletteCopyFailed: 'Could not copy {hex}: {message}',
+
         replace: 'Replace',
         replaceLabel: 'Replace {name}',
         replacing: 'Replacing {name}…',
@@ -207,6 +228,12 @@ window.__ModuleLoader__.load({
         discard: 'Discard changes',
         keepEditing: 'Keep editing',
         saveFailed: 'Could not save the image: {message}',
+
+        copyMetadata: 'Copy tags & notes',
+        pasteMetadata: 'Paste copied metadata',
+        metadataCopied: 'Copied tags, notes and source',
+        metadataPasted: 'Pasted tags, notes and source — save to apply',
+        metadataPasteEmpty: 'Copy an image’s metadata first',
       },
       zh: {
         panel: '灵感板',
@@ -342,6 +369,25 @@ window.__ModuleLoader__.load({
         bulkRemoved: '已移除所选图片（{count}）',
         bulkFailed: '批量操作失败：{message}',
 
+        manageTags: '管理标签',
+        tagMergeList: '灵感板上的标签',
+        tagMergeSelect: '选择要合并的标签 {tag}',
+        tagMergeTo: '新标签名称',
+        tagMergePlaceholder: '输入新的标签名称',
+        tagMergeAction: '合并',
+        tagMergeBusy: '合并中…',
+        tagMergeHint: '所选标签会在所有图片上被新名称替换。',
+        tagMergeEmpty: '还没有可管理的标签。',
+        tagMergeDone: '已将“{from}”合并到“{to}”——已更新 {count}。',
+        tagMergeFailed: '无法合并标签：{message}',
+        tagMergeClose: '关闭标签管理',
+
+        palette: '配色',
+        paletteHint: '灵感板中的主要颜色',
+        paletteSwatch: '复制 {hex}',
+        paletteCopied: '已复制 {hex}',
+        paletteCopyFailed: '无法复制 {hex}：{message}',
+
         replace: '替换',
         replaceLabel: '替换 {name}',
         replacing: '正在替换 {name}…',
@@ -367,6 +413,12 @@ window.__ModuleLoader__.load({
         discard: '放弃更改',
         keepEditing: '继续编辑',
         saveFailed: '无法保存图片：{message}',
+
+        copyMetadata: '复制标签和备注',
+        pasteMetadata: '粘贴已复制的元数据',
+        metadataCopied: '已复制标签、备注和来源',
+        metadataPasted: '已粘贴标签、备注和来源——保存后生效',
+        metadataPasteEmpty: '请先复制一张图片的元数据',
       },
     }
 
@@ -728,6 +780,144 @@ window.__ModuleLoader__.load({
         }
       }, [key])
       return url
+    }
+
+    // ---------------------------------------------------------------------------
+    // Dominant-color palette cache (canvas quantization, cached per image revision)
+    // ---------------------------------------------------------------------------
+
+    const PALETTE_MAX_IMAGES = 12
+    const PALETTE_MAX_SWATCHES = 10
+    const PALETTE_BUCKET_COLORS = 6
+    const PALETTE_SAMPLE_EDGE = 40
+    const PALETTE_MIN_DISTANCE_SQ = 26 * 26
+    const PALETTE_CACHE_LIMIT = 400
+
+    /** One promise per image revision, resolving to `[{ r, g, b, hex, count }]`. */
+    const paletteCache = new Map()
+
+    function paletteKey(image) {
+      return `${image.id}|${image.updatedAt}`
+    }
+
+    function channelHex(value) {
+      const clamped = Math.max(0, Math.min(255, Math.round(value)))
+      return clamped.toString(16).padStart(2, '0')
+    }
+
+    function toHex(r, g, b) {
+      return `#${channelHex(r)}${channelHex(g)}${channelHex(b)}`
+    }
+
+    function colorDistanceSq(left, right) {
+      const dr = left.r - right.r
+      const dg = left.g - right.g
+      const db = left.b - right.b
+      return dr * dr + dg * dg + db * db
+    }
+
+    /**
+     * Draw the decoded image into a tiny canvas, bucket pixels into a 4-bit RGB
+     * grid, then average and rank the buckets. Near-duplicate colors are folded
+     * together; transparent pixels are ignored. Any failure resolves to `[]`.
+     */
+    async function computeImagePalette(image) {
+      const url = await loadImageUrl(imageKey(image), image.imageUrl)
+      const element = await loadImageElement(url)
+      const width = element.naturalWidth || element.width || 0
+      const height = element.naturalHeight || element.height || 0
+      if (!(width > 0) || !(height > 0)) return []
+      const scale = Math.min(1, PALETTE_SAMPLE_EDGE / Math.max(width, height))
+      const sampleWidth = Math.max(1, Math.round(width * scale))
+      const sampleHeight = Math.max(1, Math.round(height * scale))
+      const canvas = document.createElement('canvas')
+      canvas.width = sampleWidth
+      canvas.height = sampleHeight
+      let context = null
+      try {
+        context = canvas.getContext('2d', { willReadFrequently: true })
+      } catch (error) {
+        context = null
+      }
+      if (context === null || context === undefined) return []
+      context.drawImage(element, 0, 0, sampleWidth, sampleHeight)
+      const pixels = context.getImageData(0, 0, sampleWidth, sampleHeight).data
+      const buckets = new Map()
+      for (let index = 0; index < pixels.length; index += 4) {
+        if (pixels[index + 3] < 128) continue
+        const red = pixels[index]
+        const green = pixels[index + 1]
+        const blue = pixels[index + 2]
+        const bucket = ((red >> 4) << 8) | ((green >> 4) << 4) | (blue >> 4)
+        let entry = buckets.get(bucket)
+        if (entry === undefined) {
+          entry = { r: 0, g: 0, b: 0, count: 0 }
+          buckets.set(bucket, entry)
+        }
+        entry.r += red
+        entry.g += green
+        entry.b += blue
+        entry.count += 1
+      }
+      const colors = []
+      for (const entry of buckets.values()) {
+        colors.push({
+          r: Math.round(entry.r / entry.count),
+          g: Math.round(entry.g / entry.count),
+          b: Math.round(entry.b / entry.count),
+          count: entry.count,
+        })
+      }
+      colors.sort((left, right) => right.count - left.count)
+      const picked = []
+      for (const color of colors) {
+        if (picked.some((other) => colorDistanceSq(color, other) < PALETTE_MIN_DISTANCE_SQ)) continue
+        picked.push(color)
+        if (picked.length >= PALETTE_BUCKET_COLORS) break
+      }
+      for (const color of picked) color.hex = toHex(color.r, color.g, color.b)
+      return picked
+    }
+
+    function paletteForImage(image) {
+      const key = paletteKey(image)
+      const cached = paletteCache.get(key)
+      if (cached !== undefined) return cached
+      const promise = computeImagePalette(image).catch(() => [])
+      if (paletteCache.size >= PALETTE_CACHE_LIMIT) {
+        const oldest = paletteCache.keys().next()
+        if (oldest.done !== true) paletteCache.delete(oldest.value)
+      }
+      paletteCache.set(key, promise)
+      return promise
+    }
+
+    /** Merge per-image palettes into at most PALETTE_MAX_SWATCHES unique hexes. */
+    async function computeBoardPalette(images) {
+      const perImage = await Promise.all(images.slice(0, PALETTE_MAX_IMAGES).map((image) => paletteForImage(image)))
+      const merged = []
+      for (const colors of perImage) {
+        for (const color of colors) {
+          const near = merged.find((entry) => colorDistanceSq(entry, color) < PALETTE_MIN_DISTANCE_SQ)
+          if (near === undefined) {
+            merged.push({ r: color.r, g: color.g, b: color.b, count: color.count })
+          } else {
+            near.count += color.count
+          }
+        }
+      }
+      merged.sort((left, right) => right.count - left.count)
+      const picked = []
+      for (const color of merged) {
+        if (picked.some((entry) => colorDistanceSq(entry, color) < PALETTE_MIN_DISTANCE_SQ)) continue
+        picked.push(color)
+        if (picked.length >= PALETTE_MAX_SWATCHES) break
+      }
+      return picked.map((color) => toHex(color.r, color.g, color.b))
+    }
+
+    function disposePaletteCache() {
+      paletteCache.clear()
     }
 
     // ---------------------------------------------------------------------------
@@ -1241,7 +1431,35 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * Merge `from` into `to` across the whole board. The Host returns the number
+     * of images it touched; this resolves with `{ updated }` and reloads the
+     * board. Errors are thrown so the dialog can show them inline.
+     */
+    async function mergeTags(from, to) {
+      setState({ mutating: true, error: '' })
+      try {
+        const payload = await requestJson(TAGS_MERGE_PATH, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ from, to }),
+        })
+        const updated = Number.isFinite(payload.updated) ? payload.updated : 0
+        await refresh()
+        return { updated }
+      } finally {
+        setState({ mutating: false })
+      }
+    }
+
     // ---- clipboard ------------------------------------------------------------
+
+    /**
+     * Tags/notes/source copied out of one image editor and pasted into another.
+     * Module-level on purpose: it survives panel remounts, is never persisted,
+     * and pasting only fills the editor — the user still has to save.
+     */
+    let metadataClipboard = null
 
     async function copyText(text) {
       if (
@@ -1579,6 +1797,22 @@ window.__ModuleLoader__.load({
   .dsh-mb-lightbox-image { max-height: 52vh; }
   .dsh-mb-lightbox-body { max-height: 38%; }
 }
+.dsh-mb-palette { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; flex: none; padding: 8px 12px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; background: var(--dsw-alias-bg-layer-1); }
+.dsh-mb-palette-label { flex: none; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dsh-mb-palette-swatches { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.dsh-mb-swatch { width: 24px; height: 24px; padding: 0; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; cursor: pointer; }
+.dsh-mb-swatch:hover { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
+.dsh-mb-palette-status { color: var(--dsw-alias-state-success-primary); font-size: 12px; }
+.dsh-mb-palette-status[data-state='error'] { color: var(--dsw-alias-state-error-primary); }
+.dsh-mb-chip--action { border-style: dashed; }
+.dsh-mb-merge-overlay { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--dsw-alias-bg-overlay); }
+.dsh-mb-merge-dialog { display: flex; flex-direction: column; width: min(460px, 100%); max-height: min(80vh, 560px); min-height: 0; overflow: hidden; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); }
+.dsh-mb-merge-head { display: flex; align-items: center; gap: 8px; flex: none; padding: 8px 10px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
+.dsh-mb-merge-title { flex: 1; min-width: 0; margin: 0; font-size: 14px; font-weight: 500; line-height: 22px; }
+.dsh-mb-merge-body { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px; }
+.dsh-mb-merge-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 190px; overflow-y: auto; }
+.dsh-mb-merge-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
+.dsh-mb-merge-error { margin: 0; color: var(--dsw-alias-state-error-primary); font-size: 12px; overflow-wrap: anywhere; }
 `
 
     const REFERENCE_CSS = `
@@ -1746,10 +1980,15 @@ window.__ModuleLoader__.load({
       const [confirmRemove, setConfirmRemove] = useState(false)
       const [removing, setRemoving] = useState(false)
       const [replaceBusy, setReplaceBusy] = useState(false)
+      // Mirrors the module-level metadataClipboard so the Paste button reflects
+      // a copy made in this session without needing a store round-trip.
+      const [clipboardReady, setClipboardReady] = useState(() => metadataClipboard !== null)
+      const [metaStatus, setMetaStatus] = useState('')
       const replaceInputRef = useRef(null)
       const dirtyRef = useRef(false)
       const savingRef = useRef(false)
       const savedTimer = useRef(null)
+      const metaStatusTimer = useRef(null)
 
       const dirty =
         name !== image.name ||
@@ -1795,6 +2034,43 @@ window.__ModuleLoader__.load({
           savedTimer.current = null
         }
       }, [saved])
+
+      useEffect(() => {
+        if (metaStatus === '') return undefined
+        metaStatusTimer.current = setTimeout(() => setMetaStatus(''), 2400)
+        return () => {
+          if (metaStatusTimer.current !== null) clearTimeout(metaStatusTimer.current)
+          metaStatusTimer.current = null
+        }
+      }, [metaStatus])
+
+      const copyMetadata = () => {
+        metadataClipboard = { tags: tags.slice(), notes, sourceUrl }
+        setClipboardReady(true)
+        setMetaStatus(t('metadataCopied'))
+      }
+
+      const pasteMetadata = () => {
+        const clipboard = metadataClipboard
+        if (clipboard === null) return
+        const nextTags = []
+        if (Array.isArray(clipboard.tags)) {
+          for (const tag of clipboard.tags) {
+            if (typeof tag !== 'string') continue
+            const trimmed = tag.trim()
+            if (trimmed === '' || trimmed.length > MAX_TAG_LENGTH) continue
+            if (nextTags.some((entry) => entry.toLowerCase() === trimmed.toLowerCase())) continue
+            nextTags.push(trimmed)
+            if (nextTags.length >= MAX_TAGS) break
+          }
+        }
+        setTags(nextTags)
+        setNotes(stringOr(clipboard.notes, notes).slice(0, MAX_NOTES_LENGTH))
+        setSourceUrl(stringOr(clipboard.sourceUrl, sourceUrl).slice(0, MAX_SOURCE_URL_LENGTH))
+        setTagInput('')
+        setTagError('')
+        setMetaStatus(t('metadataPasted'))
+      }
 
       const addTag = () => {
         const raw = tagInput.trim()
@@ -1953,6 +2229,7 @@ window.__ModuleLoader__.load({
               type: 'text',
               value: tagInput,
               maxLength: MAX_TAG_LENGTH,
+              list: TAG_SUGGESTIONS_ID,
               placeholder: t('tagPlaceholder'),
               'aria-labelledby': tagsId,
               'aria-describedby': tagError === '' ? undefined : tagErrorId,
@@ -2006,6 +2283,35 @@ window.__ModuleLoader__.load({
                 t('openSource'),
               )
             : null,
+        ),
+        h(
+          'div',
+          { className: 'dsh-mb-details-actions' },
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-mb-btn',
+              disabled: saving,
+              title: t('copyMetadata'),
+              'aria-label': t('copyMetadata'),
+              onClick: copyMetadata,
+            },
+            t('copyMetadata'),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-mb-btn',
+              disabled: saving || !clipboardReady,
+              title: clipboardReady ? t('pasteMetadata') : t('metadataPasteEmpty'),
+              'aria-label': clipboardReady ? t('pasteMetadata') : t('metadataPasteEmpty'),
+              onClick: pasteMetadata,
+            },
+            t('pasteMetadata'),
+          ),
+          metaStatus !== '' ? h('span', { className: 'dsh-mb-saved', role: 'status' }, metaStatus) : null,
         ),
         h(
           'button',
@@ -2106,6 +2412,324 @@ window.__ModuleLoader__.load({
     }
 
     // ---------------------------------------------------------------------------
+    // Board palette strip (dominant colors from the first few images)
+    // ---------------------------------------------------------------------------
+
+    function PaletteStrip(props) {
+      const t = getTranslator(props)
+      const images = Array.isArray(props.images) ? props.images : []
+      const sample = images.slice(0, PALETTE_MAX_IMAGES)
+      // Key the effect off ids and revisions only: selection, status or bulk
+      // state changes must never re-quantize the board.
+      const signature = sample.map((image) => paletteKey(image)).join('|')
+      const [swatches, setSwatches] = useState([])
+      const [feedback, setFeedback] = useState(null)
+
+      useEffect(() => {
+        let cancelled = false
+        if (signature === '') {
+          setSwatches([])
+          return undefined
+        }
+        computeBoardPalette(sample)
+          .then((colors) => {
+            if (!cancelled) setSwatches(colors)
+          })
+          .catch(() => {
+            if (!cancelled) setSwatches([])
+          })
+        return () => {
+          cancelled = true
+        }
+      }, [signature])
+
+      useEffect(() => {
+        if (feedback === null) return undefined
+        const timer = setTimeout(() => setFeedback(null), 2400)
+        return () => clearTimeout(timer)
+      }, [feedback])
+
+      const copySwatch = async (hex) => {
+        try {
+          await copyText(hex)
+          setFeedback({ text: t('paletteCopied', { hex }), error: false })
+        } catch (error) {
+          setFeedback({ text: t('paletteCopyFailed', { hex, message: messageOf(error) }), error: true })
+        }
+      }
+
+      if (swatches.length === 0) return null
+      return h(
+        'section',
+        { className: 'dsh-mb-palette', 'aria-label': t('palette'), title: t('paletteHint') },
+        h('span', { className: 'dsh-mb-palette-label' }, t('palette')),
+        h(
+          'div',
+          { className: 'dsh-mb-palette-swatches' },
+          swatches.map((hex) =>
+            h('button', {
+              key: hex,
+              type: 'button',
+              className: 'dsh-mb-swatch',
+              style: { backgroundColor: hex },
+              title: t('paletteSwatch', { hex }),
+              'aria-label': t('paletteSwatch', { hex }),
+              onClick: () => {
+                void copySwatch(hex)
+              },
+            }),
+          ),
+        ),
+        feedback === null
+          ? null
+          : h(
+              'span',
+              {
+                className: 'dsh-mb-palette-status',
+                'data-state': feedback.error ? 'error' : 'success',
+                role: 'status',
+              },
+              feedback.text,
+            ),
+      )
+    }
+
+    // ---------------------------------------------------------------------------
+    // Tag manager / merge dialog
+    // ---------------------------------------------------------------------------
+
+    function TagMergeDialog(props) {
+      const t = getTranslator(props)
+      const board = props.board
+      const tags = board === null ? [] : board.allTags.slice().sort((left, right) => left.localeCompare(right))
+      const [from, setFrom] = useState('')
+      const [to, setTo] = useState('')
+      const [busy, setBusy] = useState(false)
+      const [status, setStatus] = useState('')
+      const [error, setError] = useState('')
+      const dialogRef = useRef(null)
+      const closeRef = useRef(null)
+      const toInputRef = useRef(null)
+      const headingId = 'dsh-mb-tag-merge-title'
+      const toId = 'dsh-mb-tag-merge-to'
+
+      useEffect(() => {
+        const closeButton = closeRef.current
+        if (closeButton !== null) closeButton.focus()
+        return () => {
+          const opener = props.openerRef === null || props.openerRef === undefined ? null : props.openerRef.current
+          if (opener !== null && opener !== undefined && opener.isConnected === true) opener.focus()
+        }
+      }, [])
+
+      // A disabled control (the Merge button while its request is in flight) can
+      // drop focus to <body>, where the overlay's own keydown handler never sees
+      // the event. Keep Esc working from anywhere while the dialog is mounted;
+      // unmounting returns focus to the opener through the effect above.
+      useEffect(() => {
+        const onDocumentKeyDown = (event) => {
+          if (event === null || event === undefined || event.key !== 'Escape') return
+          if (event.defaultPrevented) return
+          event.preventDefault()
+          props.onClose()
+        }
+        document.addEventListener('keydown', onDocumentKeyDown)
+        return () => {
+          document.removeEventListener('keydown', onDocumentKeyDown)
+        }
+      }, [])
+
+      const selectFrom = (tag) => {
+        setFrom(tag)
+        setTo((current) => (current === '' ? tag : current))
+        setStatus('')
+        setError('')
+        const input = toInputRef.current
+        if (input !== null) input.focus()
+      }
+
+      const onMerge = async () => {
+        if (busy) return
+        const source = from.trim()
+        const target = to.trim()
+        if (source === '' || target === '' || source.toLowerCase() === target.toLowerCase()) return
+        setBusy(true)
+        setStatus('')
+        setError('')
+        try {
+          const result = await mergeTags(source, target)
+          setStatus(t('tagMergeDone', { from: source, to: target, count: imageCountText(t, result.updated) }))
+          setFrom('')
+        } catch (failure) {
+          setError(t('tagMergeFailed', { message: messageOf(failure) }))
+        } finally {
+          setBusy(false)
+          // Disabling the focused Merge button moves focus to <body>; put it
+          // back inside the dialog (without stealing it from another field) so
+          // Tab and screen readers stay contained.
+          const closeButton = closeRef.current
+          if (closeButton !== null) {
+            const dialog = dialogRef.current
+            const active = document.activeElement
+            const insideDialog =
+              dialog !== null && active !== null && active !== undefined && dialog.contains(active)
+            if (!insideDialog) closeButton.focus()
+          }
+        }
+      }
+
+      const onKeyDown = (event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          props.onClose()
+          return
+        }
+        if (event.key !== 'Tab') return
+        const dialog = dialogRef.current
+        if (dialog === null) return
+        const focusable = []
+        dialog.querySelectorAll(LIGHTBOX_FOCUSABLE).forEach((node) => {
+          if (node.getClientRects().length > 0) focusable.push(node)
+        })
+        if (focusable.length === 0) {
+          event.preventDefault()
+          return
+        }
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        const active = document.activeElement
+        if (event.shiftKey) {
+          if (active === first || !dialog.contains(active)) {
+            event.preventDefault()
+            last.focus()
+          }
+          return
+        }
+        if (active === last || !dialog.contains(active)) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
+
+      const trimmedTo = to.trim()
+      const mergeDisabled = busy || from === '' || trimmedTo === '' || from.toLowerCase() === trimmedTo.toLowerCase()
+
+      return h(
+        'div',
+        {
+          className: 'dsh-mb-merge-overlay',
+          onClick: (event) => {
+            if (event.target === event.currentTarget) props.onClose()
+          },
+          onKeyDown,
+        },
+        h(
+          'div',
+          {
+            ref: dialogRef,
+            className: 'dsh-mb-merge-dialog',
+            role: 'dialog',
+            'aria-modal': 'true',
+            'aria-labelledby': headingId,
+          },
+          h(
+            'div',
+            { className: 'dsh-mb-merge-head' },
+            h('h2', { id: headingId, className: 'dsh-mb-merge-title' }, t('manageTags')),
+            h(
+              'button',
+              {
+                ref: closeRef,
+                type: 'button',
+                className: 'dsh-mb-btn dsh-mb-btn--icon',
+                'aria-label': t('tagMergeClose'),
+                title: t('tagMergeClose'),
+                onClick: props.onClose,
+              },
+              h(IconClose, { size: 12 }),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'dsh-mb-merge-body' },
+            tags.length === 0
+              ? h('p', { className: 'dsh-mb-hint' }, t('tagMergeEmpty'))
+              : h(
+                  React.Fragment,
+                  null,
+                  h('p', { className: 'dsh-mb-hint' }, t('tagMergeHint')),
+                  h('span', { className: 'dsh-mb-label' }, t('tagMergeList')),
+                  h(
+                    'div',
+                    { className: 'dsh-mb-merge-list', role: 'group', 'aria-label': t('tagMergeList') },
+                    tags.map((tag) =>
+                      h(
+                        'button',
+                        {
+                          key: tag,
+                          type: 'button',
+                          className: 'dsh-mb-chip',
+                          'aria-pressed': from === tag ? 'true' : 'false',
+                          'aria-label': t('tagMergeSelect', { tag }),
+                          title: t('tagMergeSelect', { tag }),
+                          onClick: () => selectFrom(tag),
+                        },
+                        t('tagChip', { tag, count: countForTag(board, tag) }),
+                      ),
+                    ),
+                  ),
+                  h(
+                    'div',
+                    { className: 'dsh-mb-field' },
+                    h('label', { className: 'dsh-mb-label', htmlFor: toId }, t('tagMergeTo')),
+                    h('input', {
+                      ref: toInputRef,
+                      id: toId,
+                      className: 'dsh-mb-input',
+                      type: 'text',
+                      value: to,
+                      maxLength: MAX_TAG_LENGTH,
+                      placeholder: t('tagMergePlaceholder'),
+                      onChange: (event) => {
+                        setTo(event.currentTarget.value)
+                        setStatus('')
+                        setError('')
+                      },
+                      onKeyDown: (event) => {
+                        if (event.key !== 'Enter') return
+                        event.preventDefault()
+                        void onMerge()
+                      },
+                    }),
+                  ),
+                  error !== '' ? h('p', { className: 'dsh-mb-merge-error', role: 'alert' }, error) : null,
+                  status !== '' ? h('p', { className: 'dsh-mb-saved', role: 'status' }, status) : null,
+                  h(
+                    'div',
+                    { className: 'dsh-mb-merge-actions' },
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'dsh-mb-btn dsh-mb-btn--primary',
+                        disabled: mergeDisabled,
+                        'aria-busy': busy ? 'true' : undefined,
+                        onClick: () => {
+                          void onMerge()
+                        },
+                      },
+                      busy ? t('tagMergeBusy') : t('tagMergeAction'),
+                    ),
+                    h('button', { type: 'button', className: 'dsh-mb-btn', disabled: busy, onClick: props.onClose }, t('cancel')),
+                  ),
+                ),
+          ),
+        ),
+      )
+    }
+
+    // ---------------------------------------------------------------------------
     // Panel page
     // ---------------------------------------------------------------------------
 
@@ -2122,6 +2746,7 @@ window.__ModuleLoader__.load({
       const [bulkTagError, setBulkTagError] = useState('')
       const [bulkConfirmRemove, setBulkConfirmRemove] = useState(false)
       const [lightboxId, setLightboxId] = useState(null)
+      const [mergeOpen, setMergeOpen] = useState(false)
       const dragDepth = useRef(0)
       const fileInputRef = useRef(null)
       const replaceInputRef = useRef(null)
@@ -2132,7 +2757,10 @@ window.__ModuleLoader__.load({
       const lightboxCloseRef = useRef(null)
       const lightboxOpenerRef = useRef(null)
       const lightboxIdRef = useRef(null)
+      const mergeOpenRef = useRef(false)
+      const mergeOpenerRef = useRef(null)
       const clickSelectionRef = useRef(null)
+      mergeOpenRef.current = mergeOpen
 
       useEffect(() => {
         ensureLoaded()
@@ -2144,6 +2772,8 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         const onPaste = (event) => {
           if (event === null || event === undefined) return
+          // The tag manager dialog owns the page while it is open.
+          if (mergeOpenRef.current) return
           const clipboard = event.clipboardData
           if (clipboard === null || clipboard === undefined) return
           if (isEditableTarget(event.target)) return
@@ -2155,6 +2785,8 @@ window.__ModuleLoader__.load({
         const onKeyDown = (event) => {
           if (event === null || event === undefined || event.key !== 'Escape') return
           if (event.defaultPrevented) return
+          // The merge dialog owns Esc while it is open (its own handler closes it).
+          if (mergeOpenRef.current) return
           // The lightbox owns Esc while it is open (its own handler closes it).
           if (lightboxIdRef.current !== null) return
           if (isEditableTarget(event.target)) return
@@ -2195,6 +2827,9 @@ window.__ModuleLoader__.load({
 
       const board = state.board
       const images = board === null ? [] : board.images
+      // One shared suggestion list feeds both tag inputs; free text stays valid.
+      const tagSuggestions =
+        board === null ? [] : board.allTags.slice().sort((left, right) => left.localeCompare(right))
       const pinnedImages = images.filter((image) => image.pinned)
       const selectedImage =
         state.selectedId === null ? null : images.find((image) => image.id === state.selectedId) || null
@@ -2287,6 +2922,15 @@ window.__ModuleLoader__.load({
 
       const closeLightbox = () => {
         setLightboxId(null)
+      }
+
+      const openTagManager = (opener) => {
+        mergeOpenerRef.current = opener === undefined || opener === null ? null : opener
+        setMergeOpen(true)
+      }
+
+      const closeTagManager = () => {
+        setMergeOpen(false)
       }
 
       // Prev/next walk the current tag + search filtered order and wrap.
@@ -2621,6 +3265,7 @@ window.__ModuleLoader__.load({
               type: 'text',
               value: bulkTag,
               maxLength: MAX_TAG_LENGTH,
+              list: TAG_SUGGESTIONS_ID,
               placeholder: t('bulkTagPlaceholder'),
               'aria-label': t('bulkAddTagLabel'),
               'aria-describedby': bulkTagError === '' ? undefined : 'dsh-mb-bulk-tag-error',
@@ -3007,6 +3652,17 @@ window.__ModuleLoader__.load({
                   t('tagChip', { tag, count: countForTag(board, tag) }),
                 ),
               ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-mb-chip dsh-mb-chip--action',
+                  'aria-haspopup': 'dialog',
+                  title: t('manageTags'),
+                  onClick: (event) => openTagManager(event.currentTarget),
+                },
+                t('manageTags'),
+              ),
             ),
           ),
           filtered.length === 0
@@ -3333,6 +3989,13 @@ window.__ModuleLoader__.load({
               }),
             )
 
+      // One shared suggestion source for every tag input on the page.
+      const tagSuggestionList = h(
+        'datalist',
+        { id: TAG_SUGGESTIONS_ID },
+        tagSuggestions.map((tag) => h('option', { key: tag, value: tag })),
+      )
+
       return h(
         'section',
         {
@@ -3345,17 +4008,27 @@ window.__ModuleLoader__.load({
           onDrop,
         },
         h('style', null, PAGE_CSS),
+        tagSuggestionList,
         h(
           'div',
           { className: 'dsh-mb-visually-hidden', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' },
           state.statusText,
         ),
         header,
+        images.length === 0 ? null : h(PaletteStrip, { images, t }),
         errorBanner,
         dropZone,
         uploads,
         h('div', { className: 'dsh-mb-body' }, h('div', { className: 'dsh-mb-main' }, renderMain()), detailsPanel),
         renderLightbox(),
+        mergeOpen
+          ? h(TagMergeDialog, {
+              board,
+              t,
+              openerRef: mergeOpenerRef,
+              onClose: closeTagManager,
+            })
+          : null,
         dragActive ? h('div', { className: 'dsh-mb-drop-overlay' }, t('dropOverlay')) : null,
         h('input', {
           ref: fileInputRef,
@@ -3448,6 +4121,7 @@ window.__ModuleLoader__.load({
 
         ctx.effect(() => () => {
           disposeImageUrls()
+          disposePaletteCache()
         })
 
         ctx.slots.inject('sidebar.panellist', () =>

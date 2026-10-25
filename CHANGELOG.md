@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-25
+
+### Added
+
+- Tag autocomplete in the metadata and bulk tag inputs.
+- Tag manager: rename or merge a tag across the whole board via
+  `POST /moodboard/api/tags/merge`, with per-tag counts.
+- Copy/paste tags, notes and source URL between references.
+- Board palette strip extracted client-side from the references; click a
+  swatch to copy its hex.
+
 ## [0.2.1] - 2026-10-25
 
 ### Added

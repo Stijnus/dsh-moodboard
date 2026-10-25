@@ -247,6 +247,7 @@ Codes: `unauthorized` (401), `forbidden` (403), `not-found` (404),
 | `DELETE /moodboard/api/images/<id>` | — | `{ ok, removed: "<id>" }` |
 | `POST /moodboard/api/images/reorder` | `{ ids: [<id>…] }` complete permutation | `{ ok: true }` |
 | `POST /moodboard/api/images/bulk` | `{ ids, pinned?, addTags?, removeTags?, delete? }` | `{ ok, updated, removed }` |
+| `POST /moodboard/api/tags/merge` | `{ from, to }` | `{ ok, updated }` |
 | `GET /moodboard/api/active` | — | `{ ok, guide: { images, allTags, tagCounts, fallback }, brief }` |
 | `GET /moodboard/api/query` | `?tag=a&tag=b&match=any\|all&limit=50` | `{ ok, images, brief, total }` |
 | `GET /moodboard/api/health` | — | `{ ok, version: 1, images: <n> }` |
@@ -267,6 +268,9 @@ Codes: `unauthorized` (401), `forbidden` (403), `not-found` (404),
 - `POST /api/images/bulk` requires at least one operation; unknown ids return
   `not-found`; `delete` wins over tag/pin updates and returns
   `{ ok, updated: 0, removed: n }`.
+- `POST /api/tags/merge` replaces every case-insensitive occurrence of `from`
+  with `to`, de-duplicates each image's tags and returns the number of changed
+  images as `{ ok, updated }`; equal names are a no-op.
 - `BoardView`: `{ version, updatedAt, images: ImageView[], allTags, tagCounts,
   pinned: [<id>…] }`.
 - `ImageView`: `{ id, name, tags, notes, sourceUrl, pinned, order, createdAt,
