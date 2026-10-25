@@ -131,13 +131,12 @@ test('0.2.2 tag merge endpoint is wired', async () => {
   }
 })
 
-test('0.2.2 tag autocomplete, metadata clipboard and palette are wired', async () => {
+test('0.2.2 tag autocomplete and metadata clipboard are wired', async () => {
   const client = await read('client.js')
   for (const anchor of [
     'dsh-mb-tag-suggestions',
     'metadataClipboard',
     '/moodboard/api/tags/merge',
-    'dsh-mb-palette',
     'TagMergeDialog',
   ]) {
     assert.ok(client.includes(anchor), `client source must reference ${anchor}`)

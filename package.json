@@ -1,6 +1,6 @@
 {
   "name": "@stijnus/dsh-moodboard",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Visual reference moodboard for DeepSeek Harness: drag-and-drop images, tags, notes, and pinned style guides the agent reads before generating UI.",
   "license": "MIT",
   "type": "module",

@@ -4,19 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-25
+
+### Removed
+
+- Board palette strip: display-only dominant-color extraction had no agent or
+  API integration and duplicated what the references already convey. Palette
+  data is planned to return with the 0.3 token-export work.
+
 ### Changed
 
 - Modernized the Moodboard panel with a warm walnut-and-amber design language
   derived from the board's reference art direction: a hero-style active style
-  guide, compact palette strip, sticky search/tag toolbar, uniform gallery
+  guide, sticky search/tag toolbar, uniform gallery
   cards with hover actions and an explicit selection check, and a sticky
   inspector footer.
 - Removed the permanent drop zone: upload is available from the header and
   empty state, and a full-panel drag overlay appears only while dragging.
 - Multi-select now uses a floating bottom command bar and appears only for two
   or more images; single-image actions live in the inspector.
-- Upload confirmations became auto-dismissing status pills; the board palette
-  row explains its copy-to-clipboard behaviour.
+- Upload confirmations became auto-dismissing status pills.
 - The inspector turns into a dismissible bottom sheet on narrow screens, and
   card actions collapse to icon-only controls on touch.
 - Improved light-theme contrast for success/warning text, form boundaries and

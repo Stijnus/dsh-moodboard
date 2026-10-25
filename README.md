@@ -11,7 +11,7 @@ inspiration images in the Web UI, tag and annotate them, pin the ones that
 define your app's visual language, and let the agent read that style guide
 before it generates or restyles UI.
 
-![A moodboard panel with a warm active style-guide hero, palette strip, filterable gallery and image inspector](https://raw.githubusercontent.com/Stijnus/dsh-moodboard/main/docs/panel.png)
+![A moodboard panel with a warm active style-guide hero, filterable gallery and image inspector](https://raw.githubusercontent.com/Stijnus/dsh-moodboard/main/docs/panel.png)
 
 ## What you get
 
@@ -19,8 +19,8 @@ before it generates or restyles UI.
   paste or file-picker upload; gallery of thumbnails with drag-to-reorder and
   multi-select bulk actions; tag filter; and an active style-guide strip.
 - **Modern, theme-aware UI**: a warm walnut/amber visual language built on DSH
-  theme tokens (light and dark), hero-style active style guide, compact palette
-  strip, sticky search/filter toolbar, icon-only card actions with hover
+  theme tokens (light and dark), hero-style active style guide, sticky search/filter
+  toolbar, icon-only card actions with hover
   affordances, a floating multi-select command bar, a sticky inspector footer
   and a bottom-sheet inspector on narrow screens. Motion honours
   `prefers-reduced-motion`; focus rings, live regions and labelled controls are
@@ -39,9 +39,8 @@ before it generates or restyles UI.
 - **Tag smartness**: autocomplete from the tags already on the board, and a
   tag manager that renames or merges a tag across every reference (with
   per-tag counts).
-- **Reuse & palette**: copy tags/notes/source from one reference and paste them
-  into another; a palette strip extracts dominant colors from the references
-  (click a swatch to copy its hex).
+- **Reuse**: copy tags/notes/source from one reference and paste them into
+  another.
 - **Per-image metadata**: tags, notes, source URL, name — editable in a
   metadata panel, with pin / replace / remove actions.
 - **Active style guide**: pin one or more references. The agent treats pinned
