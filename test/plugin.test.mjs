@@ -13,7 +13,7 @@ const read = (name) => readFile(new URL(name, root), 'utf8')
 
 test('manifest declares the bundle, client half and runtime files', async () => {
   const pkg = JSON.parse(await read('package.json'))
-  assert.equal(pkg.name, '@stijnus/dsh-moodboard')
+  assert.equal(pkg.name, 'dsh-moodboard')
   assert.match(pkg.version, /^\d+\.\d+\.\d+$/)
   assert.equal(pkg.private, undefined)
   assert.equal(pkg.type, 'module')
@@ -30,7 +30,7 @@ test('manifest declares the bundle, client half and runtime files', async () => 
 test('loader patch inserts the moodboard row for this package', async () => {
   const patch = await read('cordis.patch.yml')
   assert.match(patch, /id: moodboard/)
-  assert.match(patch, /name: '@stijnus\/dsh-moodboard'/)
+  assert.match(patch, /name: 'dsh-moodboard'/)
 })
 
 test('host half exports name, inject and apply', async () => {
@@ -61,7 +61,7 @@ test('client half loads under the package id with allowed requires only', async 
   const source = await read('client.js')
   const loader = source.match(/__ModuleLoader__\.load\(\{\s*id:\s*'([^']+)'/)
   assert.ok(loader, 'client must call window.__ModuleLoader__.load with an id')
-  assert.equal(loader[1], '@stijnus/dsh-moodboard')
+  assert.equal(loader[1], 'dsh-moodboard')
   assert.doesNotMatch(source, /^\s*import\s/m)
   const requires = [...source.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map((match) => match[1])
   for (const name of requires) assert.ok(name === 'react' || name === 'react/jsx-runtime', `unexpected client require: ${name}`)

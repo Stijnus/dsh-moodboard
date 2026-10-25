@@ -4,4 +4,4 @@
 # local checkout during development).
 - insert:
     - id: moodboard
-      name: '@stijnus/dsh-moodboard'
+      name: 'dsh-moodboard'

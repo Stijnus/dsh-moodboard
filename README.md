@@ -1,7 +1,7 @@
 # dsh-moodboard
 
-[![npm version](https://img.shields.io/npm/v/@stijnus/dsh-moodboard.svg)](https://www.npmjs.com/package/@stijnus/dsh-moodboard)
-[![provenance: signed](https://img.shields.io/badge/provenance-signed-brightgreen)](https://www.npmjs.com/package/@stijnus/dsh-moodboard)
+[![npm version](https://img.shields.io/npm/v/dsh-moodboard.svg)](https://www.npmjs.com/package/dsh-moodboard)
+[![provenance: signed](https://img.shields.io/badge/provenance-signed-brightgreen)](https://www.npmjs.com/package/dsh-moodboard)
 [![test](https://github.com/Stijnus/dsh-moodboard/actions/workflows/test.yml/badge.svg)](https://github.com/Stijnus/dsh-moodboard/actions/workflows/test.yml)
 [![release](https://github.com/Stijnus/dsh-moodboard/actions/workflows/release.yml/badge.svg)](https://github.com/Stijnus/dsh-moodboard/actions/workflows/release.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -73,14 +73,14 @@ From npm once a release is published, through the Plugins page or
 `plugin_manager install_bundle`:
 
 ```text
-plugin_manager install_bundle target: "@stijnus/dsh-moodboard"
+plugin_manager install_bundle target: "dsh-moodboard"
 ```
 
 Manual equivalent (installs the package into a profile; the bundle still has to
 be enabled through the Plugins page):
 
 ```bash
-dsh plugin --profile <profile> add @stijnus/dsh-moodboard
+dsh plugin --profile <profile> add dsh-moodboard
 ```
 
 Reload the Web UI if the sidebar icon does not appear immediately.
@@ -180,8 +180,8 @@ no attestation.
 Verify a release:
 
 ```bash
-npm view @stijnus/dsh-moodboard@<version> dist.attestations
-npm view @stijnus/dsh-moodboard@<version> dist.integrity
+npm view dsh-moodboard@<version> dist.attestations
+npm view dsh-moodboard@<version> dist.integrity
 ```
 
 The attestation URL resolves to the signed in-toto statement; the matching

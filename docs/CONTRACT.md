@@ -1,4 +1,4 @@
-> **Packaging note.** This bundle is published as `@stijnus/dsh-moodboard`.
+> **Packaging note.** This bundle is published as `dsh-moodboard`.
 > The client loader id and the patch row `name` use that scoped package name;
 > the Loader row id remains `moodboard`.
 

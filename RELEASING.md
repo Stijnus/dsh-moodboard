@@ -6,10 +6,10 @@ runs the tests, and publishes to npm with a provenance attestation.
 
 ## One-time setup: npm scope and trusted publishing
 
-1. The package is scoped (`@stijnus/dsh-moodboard`); the publishing npm account
-   must own the `@stijnus` scope. `publishConfig.access` is already `public`.
+1. The package is unscoped (`dsh-moodboard`), so the publishing npm account
+   only has to own the package itself; no npm org is involved.
 2. Configure npm trusted publishing for the package
-   (<https://www.npmjs.com/package/@stijnus/dsh-moodboard> → **Settings** →
+   (<https://www.npmjs.com/package/dsh-moodboard> → **Settings** →
    **Trusted publishing**):
    - Organization or user: `Stijnus`
    - Repository: `dsh-moodboard`
@@ -48,8 +48,8 @@ with provenance, and waits until the version is visible on npm.
 ```bash
 npm test
 npm pack --dry-run
-npm view @stijnus/dsh-moodboard version
-npm view "@stijnus/dsh-moodboard@${release_version}" dist.attestations
+npm view dsh-moodboard version
+npm view "dsh-moodboard@${release_version}" dist.attestations
 ```
 
 Then install the exact packed tarball into a throwaway profile and check the

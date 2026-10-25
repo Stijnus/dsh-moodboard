@@ -14,7 +14,7 @@
  */
 
 window.__ModuleLoader__.load({
-  id: '@stijnus/dsh-moodboard',
+  id: 'dsh-moodboard',
   factory(require) {
     const React = require('react')
     const h = React.createElement
