@@ -497,6 +497,14 @@ async function dispatch(store, ctx, request, response, method, segments, url) {
   }
 
   if (segments.length === 3 && segments[1] === 'images') {
+    if (segments[2] === 'reorder') {
+      requireMethod(method, 'POST')
+      return handleReorderImages(store, request, response)
+    }
+    if (segments[2] === 'bulk') {
+      requireMethod(method, 'POST')
+      return handleBulkImages(store, request, response)
+    }
     const id = decodeSegment(segments[2])
     if (method === 'PATCH') return handlePatchImage(store, request, response, id)
     if (method === 'DELETE') return handleDeleteImage(store, response, id)
@@ -640,6 +648,69 @@ async function handleDeleteImage(store, response, id) {
     draft.images.splice(index, 1)
   })
   sendJson(response, 200, { ok: true, removed: id })
+}
+
+/** `POST /api/images/reorder` — apply a complete manual gallery order in one write. */
+async function handleReorderImages(store, request, response) {
+  const body = await readJsonBody(request, MAX_PATCH_BODY_BYTES, 'invalid-body')
+  const ids = requireIdList(body.ids)
+
+  await store.mutate((draft) => {
+    if (ids.length !== draft.images.length) {
+      throw httpError('invalid-body', 'ids must contain every board image exactly once')
+    }
+    const byId = new Map(draft.images.map((image) => [image.id, image]))
+    for (const id of ids) {
+      if (!byId.has(id)) throw httpError('invalid-body', 'ids must contain every board image exactly once')
+    }
+    const now = new Date().toISOString()
+    ids.forEach((id, index) => {
+      const image = byId.get(id)
+      image.order = index
+      image.updatedAt = now
+    })
+    draft.nextOrder = ids.length
+  })
+
+  sendJson(response, 200, { ok: true })
+}
+
+/** `POST /api/images/bulk` — pin, add/remove tags, or delete several images at once. */
+async function handleBulkImages(store, request, response) {
+  const body = await readJsonBody(request, MAX_PATCH_BODY_BYTES, 'invalid-body')
+  const ids = requireIdList(body.ids)
+  const pinned = Object.hasOwn(body, 'pinned') ? requirePinned(body.pinned) : undefined
+  const addTags = Object.hasOwn(body, 'addTags') ? requireTags(body.addTags) : []
+  const removeTags = Object.hasOwn(body, 'removeTags') ? requireTags(body.removeTags) : []
+  const remove = Object.hasOwn(body, 'delete') ? requireDeleteFlag(body.delete) : false
+  if (pinned === undefined && addTags.length === 0 && removeTags.length === 0 && remove !== true) {
+    throw httpError('invalid-body', 'bulk requires pinned, addTags, removeTags or delete')
+  }
+
+  const result = await store.mutate((draft) => {
+    const byId = new Map(draft.images.map((image) => [image.id, image]))
+    for (const id of ids) {
+      if (!byId.has(id)) throw notFoundImage(id)
+    }
+    if (remove) {
+      const removeSet = new Set(ids)
+      const before = draft.images.length
+      draft.images = draft.images.filter((image) => !removeSet.has(image.id))
+      return { updated: 0, removed: before - draft.images.length }
+    }
+    const dropTags = new Set(removeTags.map((tag) => tag.toLowerCase()))
+    const now = new Date().toISOString()
+    for (const id of ids) {
+      const image = byId.get(id)
+      if (pinned !== undefined) image.pinned = pinned
+      if (addTags.length > 0) image.tags = normalizeTagList([...image.tags, ...addTags], false)
+      if (dropTags.size > 0) image.tags = image.tags.filter((tag) => !dropTags.has(tag.toLowerCase()))
+      image.updatedAt = now
+    }
+    return { updated: ids.length, removed: 0 }
+  })
+
+  sendJson(response, 200, { ok: true, updated: result.updated, removed: result.removed })
 }
 
 /** `GET /image/<id>` — raw normalized bytes with immutable caching. */
@@ -859,6 +930,30 @@ function requirePinned(value) {
 /** Validate an `order` value. */
 function requireOrder(value) {
   if (!Number.isSafeInteger(value) || value < 0) throw httpError('invalid-body', 'order must be a non-negative integer')
+  return value
+}
+
+/** Validate an id list for reorder/bulk: 1..MAX_IMAGES valid, unique image ids. */
+function requireIdList(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_IMAGES) {
+    throw httpError('invalid-body', `ids must be an array of 1 through ${MAX_IMAGES} image ids`)
+  }
+  const ids = []
+  const seen = new Set()
+  for (const id of value) {
+    if (typeof id !== 'string' || !IMAGE_ID_PATTERN.test(id)) {
+      throw httpError('invalid-body', 'ids must be moodboard image ids')
+    }
+    if (seen.has(id)) throw httpError('invalid-body', 'ids must not contain duplicates')
+    seen.add(id)
+    ids.push(id)
+  }
+  return ids
+}
+
+/** Validate an optional `delete` flag for a bulk operation. */
+function requireDeleteFlag(value) {
+  if (typeof value !== 'boolean') throw httpError('invalid-body', 'delete must be a boolean')
   return value
 }
 

@@ -26,6 +26,8 @@ window.__ModuleLoader__.load({
 
     const NS = 'moodboard'
     const API_ROOT = '/moodboard/api'
+    const REORDER_PATH = '/moodboard/api/images/reorder'
+    const BULK_PATH = '/moodboard/api/images/bulk'
     const MAX_FILE_BYTES = 25 * 1024 * 1024
     const MAX_EDGE = 1600
     const ENCODE_QUALITY = 0.85
@@ -36,6 +38,7 @@ window.__ModuleLoader__.load({
     const MAX_NOTES_LENGTH = 4000
     const MAX_SOURCE_URL_LENGTH = 2000
     const MAX_ERROR_CHARS = 320
+    const DRAG_ID_TYPE = 'application/x-moodboard-id'
 
     // ---------------------------------------------------------------------------
     // Locale dictionaries (every visible string is addressed through these)
@@ -64,6 +67,14 @@ window.__ModuleLoader__.load({
         copyFailed: 'Could not copy the agent brief: {message}',
         copyUnsupported: 'Clipboard access is unavailable in this browser.',
 
+        pasteImage: 'Paste image',
+        pastingImage: 'Pasting…',
+        pasteHint: 'Paste an image with ⌘V / Ctrl+V anywhere on this page.',
+        pasteUnsupported: 'Clipboard paste is unavailable in this browser.',
+        pasteFailed: 'Could not read the clipboard: {message}',
+        pasteNoImage: 'No image found on the clipboard.',
+        pasteFileName: 'pasted-image-{index}.{ext}',
+
         retry: 'Retry',
         dismiss: 'Dismiss',
 
@@ -91,6 +102,10 @@ window.__ModuleLoader__.load({
         allTags: 'All',
         tagChip: '{tag} ({count})',
         noMatches: 'No images have this tag yet.',
+        reorderHint: 'Drag a card to reorder the gallery.',
+        reorderFilteredHint: 'Clear the tag filter to reorder the gallery.',
+        reorderDone: 'Gallery order saved',
+        reorderFailed: 'Could not reorder the gallery: {message}',
 
         emptyTitle: 'Your moodboard is empty',
         emptyBody:
@@ -133,6 +148,23 @@ window.__ModuleLoader__.load({
         pinnedOff: 'Unpinned {name} from the style guide',
         pinFailed: 'Could not update the pin: {message}',
         pinSwitch: 'Use as a style-guide reference',
+
+        selectionToolbar: 'Selection actions',
+        selectionCount: '{count} selected',
+        selectionHint: '⌘/Ctrl-click to add, Shift-click for a range, Esc to clear.',
+        selectionCleared: 'Selection cleared',
+        clearSelection: 'Clear selection',
+        bulkPinLabel: 'Pin selected images',
+        bulkUnpinLabel: 'Unpin selected images',
+        bulkPinned: 'Pinned selection ({count})',
+        bulkUnpinned: 'Unpinned selection ({count})',
+        bulkAddTagLabel: 'Add a tag to the selected images',
+        bulkTagPlaceholder: 'Tag to add, then Enter',
+        bulkTagged: 'Added tag “{tag}” to the selection ({count})',
+        bulkRemoveLabel: 'Remove selected images',
+        bulkConfirmQuestion: 'Remove the selected images ({count})?',
+        bulkRemoved: 'Removed selection ({count})',
+        bulkFailed: 'Bulk action failed: {message}',
 
         replace: 'Replace',
         replaceLabel: 'Replace {name}',
@@ -182,6 +214,14 @@ window.__ModuleLoader__.load({
         copyFailed: '无法复制代理摘要：{message}',
         copyUnsupported: '当前浏览器无法访问剪贴板。',
 
+        pasteImage: '粘贴图片',
+        pastingImage: '粘贴中…',
+        pasteHint: '在本页任意位置按 ⌘V / Ctrl+V 即可粘贴图片。',
+        pasteUnsupported: '当前浏览器不支持从剪贴板粘贴。',
+        pasteFailed: '无法读取剪贴板：{message}',
+        pasteNoImage: '剪贴板中没有图片。',
+        pasteFileName: '粘贴的图片-{index}.{ext}',
+
         retry: '重试',
         dismiss: '关闭',
 
@@ -209,6 +249,10 @@ window.__ModuleLoader__.load({
         allTags: '全部',
         tagChip: '{tag}（{count}）',
         noMatches: '还没有图片使用这个标签。',
+        reorderHint: '拖动卡片即可调整图片库顺序。',
+        reorderFilteredHint: '清除标签筛选后即可调整图片库顺序。',
+        reorderDone: '已保存图片库顺序',
+        reorderFailed: '无法调整图片库顺序：{message}',
 
         emptyTitle: '灵感板还是空的',
         emptyBody: '添加参考图片，记录你希望代理匹配的字体排印、配色、间距和组件。',
@@ -250,6 +294,23 @@ window.__ModuleLoader__.load({
         pinnedOff: '已将 {name} 从风格指南中取消钉选',
         pinFailed: '无法更新钉选状态：{message}',
         pinSwitch: '用作风格指南参考',
+
+        selectionToolbar: '所选图片操作',
+        selectionCount: '已选择 {count} 张',
+        selectionHint: '⌘/Ctrl 点击可多选，Shift 点击选择范围，Esc 清除选择。',
+        selectionCleared: '已清除选择',
+        clearSelection: '清除选择',
+        bulkPinLabel: '钉选所选图片',
+        bulkUnpinLabel: '取消钉选所选图片',
+        bulkPinned: '已钉选所选图片（{count}）',
+        bulkUnpinned: '已取消钉选所选图片（{count}）',
+        bulkAddTagLabel: '为所选图片添加标签',
+        bulkTagPlaceholder: '输入要添加的标签后按回车',
+        bulkTagged: '已为所选图片添加标签“{tag}”（{count}）',
+        bulkRemoveLabel: '移除所选图片',
+        bulkConfirmQuestion: '移除所选的图片（{count} 张）？',
+        bulkRemoved: '已移除所选图片（{count}）',
+        bulkFailed: '批量操作失败：{message}',
 
         replace: '替换',
         replaceLabel: '替换 {name}',
@@ -341,6 +402,109 @@ window.__ModuleLoader__.load({
       return typeof props.t === 'function' ? props.t : msg
     }
 
+    function isImageType(type) {
+      return typeof type === 'string' && type.indexOf('image/') === 0
+    }
+
+    /** True when paste/selection shortcuts should be left to the focused field. */
+    function isEditableTarget(target) {
+      if (target === null || target === undefined || typeof target !== 'object') return false
+      const tagName = typeof target.tagName === 'string' ? target.tagName.toUpperCase() : ''
+      if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') return true
+      if (target.isContentEditable === true) return true
+      if (typeof target.closest === 'function') {
+        try {
+          if (target.closest('[contenteditable="true"], [role="textbox"]') !== null) return true
+        } catch (error) {
+          // A detached or exotic node cannot be inspected; treat it as safe.
+        }
+      }
+      return false
+    }
+
+    function extensionForMime(type) {
+      if (typeof type !== 'string') return 'png'
+      const slash = type.indexOf('/')
+      if (slash === -1) return 'png'
+      const subtype = type
+        .slice(slash + 1)
+        .split('+')[0]
+        .replace(/[^a-z0-9]/gi, '')
+        .toLowerCase()
+      return subtype === '' ? 'png' : subtype
+    }
+
+    /** Image files carried by a `paste` event's clipboardData (files, then items). */
+    function clipboardImageFiles(clipboardData) {
+      const files = []
+      if (clipboardData === null || clipboardData === undefined) return files
+      try {
+        const list = clipboardData.files
+        if (list !== null && list !== undefined && typeof list.length === 'number') {
+          for (let index = 0; index < list.length; index += 1) {
+            const file = list[index]
+            if (file !== null && file !== undefined && isImageType(file.type)) files.push(file)
+          }
+        }
+      } catch (error) {
+        // Fall through to clipboard items.
+      }
+      if (files.length > 0) return files
+      try {
+        const items = clipboardData.items
+        if (items !== null && items !== undefined && typeof items.length === 'number') {
+          for (let index = 0; index < items.length; index += 1) {
+            const item = items[index]
+            if (item === null || item === undefined || item.kind !== 'file' || !isImageType(item.type)) continue
+            if (typeof item.getAsFile !== 'function') continue
+            const file = item.getAsFile()
+            if (file !== null && file !== undefined) files.push(file)
+          }
+        }
+      } catch (error) {
+        // Nothing readable on this clipboard.
+      }
+      return files
+    }
+
+    /**
+     * Read image blobs through the async Clipboard API (`navigator.clipboard.read`).
+     * Throws with code `paste-unsupported` when the API is missing; otherwise the
+     * caller shows the localized read error.
+     */
+    async function readClipboardImageFiles(t) {
+      const clipboard = typeof navigator === 'undefined' ? undefined : navigator.clipboard
+      if (clipboard === undefined || clipboard === null || typeof clipboard.read !== 'function') {
+        throw createError(t('pasteUnsupported'), 'paste-unsupported')
+      }
+      const items = await clipboard.read()
+      const files = []
+      if (!Array.isArray(items)) return files
+      for (let index = 0; index < items.length; index += 1) {
+        const item = items[index]
+        if (item === null || item === undefined || !Array.isArray(item.types)) continue
+        for (const type of item.types) {
+          if (!isImageType(type) || typeof item.getType !== 'function') continue
+          let blob = null
+          try {
+            blob = await item.getType(type)
+          } catch (error) {
+            continue
+          }
+          if (blob === null || blob === undefined) continue
+          const name = t('pasteFileName', { index: files.length + 1, ext: extensionForMime(type) })
+          try {
+            files.push(new File([blob], name, { type }))
+          } catch (error) {
+            // Older engines have no File constructor; the blob still uploads.
+            files.push(blob)
+          }
+          break
+        }
+      }
+      return files
+    }
+
     // ---------------------------------------------------------------------------
     // Board normalization
     // ---------------------------------------------------------------------------
@@ -355,11 +519,17 @@ window.__ModuleLoader__.load({
       return counts
     }
 
+    /**
+     * Gallery order is the manual `order` field only. Pinned images keep their
+     * card position (the pinned badge and the active strip are what mark them);
+     * this keeps drag-to-reorder stable across pin/unpin changes.
+     */
     function sortImages(images) {
       return images.slice().sort((left, right) => {
-        if (left.pinned !== right.pinned) return left.pinned ? -1 : 1
         if (left.order !== right.order) return left.order - right.order
-        return String(left.createdAt).localeCompare(String(right.createdAt))
+        const created = String(left.createdAt).localeCompare(String(right.createdAt))
+        if (created !== 0) return created
+        return String(left.id).localeCompare(String(right.id))
       })
     }
 
@@ -573,6 +743,10 @@ window.__ModuleLoader__.load({
         error: '',
         statusText: '',
         selectedId: null,
+        // Multi-select is tracked separately from the details target: a plain
+        // click selects one image, Cmd/Ctrl-click grows or shrinks this set.
+        selectedIds: [],
+        selectionAnchorId: null,
         tagFilter: '',
         uploads: [],
         editorDirty: false,
@@ -623,10 +797,15 @@ window.__ModuleLoader__.load({
       const stillPresent = current !== null && board.images.some((image) => image.id === current)
       const filter = snapshot.tagFilter
       const filterStillPresent = filter !== '' && board.allTags.indexOf(filter) !== -1
+      const present = new Set(board.images.map((image) => image.id))
+      const selectedIds = snapshot.selectedIds.filter((id) => present.has(id))
+      const anchor = snapshot.selectionAnchorId
       setState({
         board,
         loading: false,
         selectedId: stillPresent ? current : null,
+        selectedIds,
+        selectionAnchorId: anchor !== null && present.has(anchor) ? anchor : null,
         tagFilter: filterStillPresent ? filter : '',
       })
     }
@@ -670,6 +849,63 @@ window.__ModuleLoader__.load({
 
     function setTagFilter(tag) {
       setState({ tagFilter: typeof tag === 'string' ? tag : '' })
+    }
+
+    // ---- multi-select ---------------------------------------------------------
+
+    /** Plain click: one focused image, and the details panel follows it. */
+    function selectSingleImage(id) {
+      setState({ selectedIds: [id], selectionAnchorId: id })
+      selectImage(id)
+    }
+
+    /** Cmd/Ctrl-click: add or remove one image without dropping the others. */
+    function toggleSelectedImage(id) {
+      const current = snapshot.selectedIds
+      const alreadySelected = current.indexOf(id) !== -1
+      const next = alreadySelected ? current.filter((entry) => entry !== id) : current.concat([id])
+      setState({ selectedIds: next, selectionAnchorId: id })
+      if (!alreadySelected) {
+        selectImage(id)
+        return
+      }
+      if (snapshot.selectedId !== id) return
+      selectImage(next.length > 0 ? next[next.length - 1] : null)
+    }
+
+    /** Shift-click: a contiguous range over the currently visible order. */
+    function selectRangeTo(id, visibleIds) {
+      const list = Array.isArray(visibleIds) ? visibleIds : []
+      const targetIndex = list.indexOf(id)
+      const anchor = snapshot.selectionAnchorId
+      const anchorIndex = anchor === null ? -1 : list.indexOf(anchor)
+      if (targetIndex === -1 || anchorIndex === -1) {
+        selectSingleImage(id)
+        return
+      }
+      const start = Math.min(anchorIndex, targetIndex)
+      const end = Math.max(anchorIndex, targetIndex)
+      const next = list.slice(start, end + 1)
+      if (next.length === 0) {
+        selectSingleImage(id)
+        return
+      }
+      setState({ selectedIds: next })
+      selectImage(id)
+    }
+
+    function clearSelection() {
+      if (snapshot.selectedIds.length === 0 && snapshot.selectedId === null && snapshot.selectionAnchorId === null) return
+      setState({ selectedIds: [], selectionAnchorId: null })
+      selectImage(null)
+    }
+
+    /** Close the details panel and drop the card selection with it. */
+    function closeDetails() {
+      if (snapshot.selectedIds.length !== 0 || snapshot.selectionAnchorId !== null) {
+        setState({ selectedIds: [], selectionAnchorId: null })
+      }
+      selectImage(null)
     }
 
     function setEditorDirty(dirty) {
@@ -868,6 +1104,78 @@ window.__ModuleLoader__.load({
         } else {
           setState({ error: msg('removeFailed', { message: messageOf(error) }) })
         }
+        return false
+      } finally {
+        setState({ mutating: false })
+      }
+    }
+
+    /**
+     * Persist the gallery order. `ids` must list every board image id in its new
+     * order (not only the visible/filtered subset).
+     */
+    async function reorderImages(ids) {
+      if (!Array.isArray(ids) || ids.length === 0) return false
+      setState({ mutating: true, error: '' })
+      try {
+        await requestJson(REORDER_PATH, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ids }),
+        })
+        setStatus(msg('reorderDone'))
+        await refresh()
+        return true
+      } catch (error) {
+        if (errorCode(error) === 'not-found') await refresh()
+        setState({ error: msg('reorderFailed', { message: messageOf(error) }) })
+        return false
+      } finally {
+        setState({ mutating: false })
+      }
+    }
+
+    /**
+     * Run one bulk operation over the current multi-selection, then reload the
+     * board from `GET /state`. Deleting wins on the Host side; this client sends
+     * it alone, never combined with pin/tag fields.
+     */
+    async function bulkUpdate(patch) {
+      const ids = snapshot.selectedIds.slice()
+      if (ids.length === 0) return false
+      const body = { ids }
+      if (patch !== null && typeof patch === 'object') {
+        if (patch.pinned !== undefined) body.pinned = patch.pinned === true
+        if (Array.isArray(patch.addTags) && patch.addTags.length > 0) body.addTags = patch.addTags
+        if (Array.isArray(patch.removeTags) && patch.removeTags.length > 0) body.removeTags = patch.removeTags
+        if (patch.delete === true) body.delete = true
+      }
+      setState({ mutating: true, error: '' })
+      try {
+        const payload = await requestJson(BULK_PATH, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        const updated = Number.isFinite(payload.updated) ? payload.updated : ids.length
+        const removed = Number.isFinite(payload.removed) ? payload.removed : 0
+        if (body.delete === true) {
+          setState({ selectedId: null, selectedIds: [], selectionAnchorId: null })
+          setStatus(msg('bulkRemoved', { count: removed > 0 ? removed : ids.length }))
+        } else if (body.pinned === true) {
+          setStatus(msg('bulkPinned', { count: updated }))
+        } else if (body.pinned === false) {
+          setStatus(msg('bulkUnpinned', { count: updated }))
+        } else if (Array.isArray(body.addTags)) {
+          setStatus(msg('bulkTagged', { tag: body.addTags[0], count: updated }))
+        } else {
+          setStatus(msg('selectionCleared'))
+        }
+        await refresh()
+        return true
+      } catch (error) {
+        if (errorCode(error) === 'not-found') await refresh()
+        setState({ error: msg('bulkFailed', { message: messageOf(error) }) })
         return false
       } finally {
         setState({ mutating: false })
@@ -1173,6 +1481,17 @@ window.__ModuleLoader__.load({
 .dsh-mb-visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .dsh-mb-page :focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
 .dsh-mb-page .dsh-mb-thumb-btn:focus-visible { outline-offset: -2px; }
+.dsh-mb-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; border: 1px solid var(--dsw-alias-brand-primary); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); }
+.dsh-mb-bulk-count { font-size: 12px; font-weight: 500; }
+.dsh-mb-bulk-hint { flex: 1 1 100%; order: 2; }
+.dsh-mb-bulk-tag { display: flex; align-items: center; gap: 4px; }
+.dsh-mb-bulk-tag .dsh-mb-input { height: 28px; width: 160px; }
+.dsh-mb-bulk-error { flex: 1 1 100%; margin: 0; color: var(--dsw-alias-state-error-primary); font-size: 12px; overflow-wrap: anywhere; }
+.dsh-mb-card[draggable='true'] { cursor: grab; }
+.dsh-mb-card[draggable='true']:active { cursor: grabbing; }
+.dsh-mb-card[data-dragging='true'] { opacity: 0.55; }
+.dsh-mb-card[data-drop='before'] { box-shadow: inset 3px 0 0 var(--dsw-alias-brand-primary); }
+.dsh-mb-card[data-drop='after'] { box-shadow: inset -3px 0 0 var(--dsw-alias-brand-primary); }
 @media (hover: none) { .dsh-mb-card-actions { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .dsh-mb-card-actions, .dsh-mb-switch-track, .dsh-mb-switch-knob { transition: none; } }
 `
@@ -1677,7 +1996,13 @@ window.__ModuleLoader__.load({
       const state = useSyncExternalStore(subscribe, getSnapshot)
       const [dragActive, setDragActive] = useState(false)
       const [copying, setCopying] = useState(false)
+      const [pasting, setPasting] = useState(false)
       const [confirmRemoveId, setConfirmRemoveId] = useState(null)
+      const [reorderDragId, setReorderDragId] = useState(null)
+      const [reorderOver, setReorderOver] = useState(null)
+      const [bulkTag, setBulkTag] = useState('')
+      const [bulkTagError, setBulkTagError] = useState('')
+      const [bulkConfirmRemove, setBulkConfirmRemove] = useState(false)
       const dragDepth = useRef(0)
       const fileInputRef = useRef(null)
       const replaceInputRef = useRef(null)
@@ -1687,6 +2012,49 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         ensureLoaded()
       }, [])
+
+      // Clipboard paste and the Esc selection shortcut are page-level: they only
+      // listen while the Moodboard page is mounted, and never steal keys from a
+      // focused field (name/notes/tag inputs, the composer editor, search).
+      useEffect(() => {
+        const onPaste = (event) => {
+          if (event === null || event === undefined) return
+          const clipboard = event.clipboardData
+          if (clipboard === null || clipboard === undefined) return
+          if (isEditableTarget(event.target)) return
+          const files = clipboardImageFiles(clipboard)
+          if (files.length === 0) return
+          event.preventDefault()
+          void uploadFiles(files)
+        }
+        const onKeyDown = (event) => {
+          if (event === null || event === undefined || event.key !== 'Escape') return
+          if (event.defaultPrevented) return
+          if (isEditableTarget(event.target)) return
+          const current = getSnapshot()
+          if (current.pendingSelectId !== undefined) {
+            event.preventDefault()
+            cancelPendingSelect()
+            return
+          }
+          if (current.selectedIds.length === 0 && current.selectedId === null) return
+          event.preventDefault()
+          clearSelection()
+          setStatus(msg('selectionCleared'))
+        }
+        document.addEventListener('paste', onPaste)
+        document.addEventListener('keydown', onKeyDown)
+        return () => {
+          document.removeEventListener('paste', onPaste)
+          document.removeEventListener('keydown', onKeyDown)
+        }
+      }, [])
+
+      useEffect(() => {
+        if (state.selectedIds.length > 0) return
+        setBulkConfirmRemove(false)
+        setBulkTagError('')
+      }, [state.selectedIds.length])
 
       useEffect(() => {
         if (state.pendingSelectId !== undefined && discardRef.current !== null) discardRef.current.focus()
@@ -1725,6 +2093,99 @@ window.__ModuleLoader__.load({
         return false
       }
 
+      function hasInternalDrag(event) {
+        const transfer = event === null || event === undefined ? undefined : event.dataTransfer
+        if (transfer === null || transfer === undefined) return false
+        const types = transfer.types
+        if (types === null || types === undefined) return false
+        try {
+          for (let index = 0; index < types.length; index += 1) {
+            if (types[index] === DRAG_ID_TYPE) return true
+          }
+        } catch (error) {
+          return false
+        }
+        return false
+      }
+
+      // Manual order needs a stable, filter-free list: reordering while a tag
+      // filter hides cards would silently move unseen images.
+      const canReorder = state.tagFilter === '' && filtered.length === images.length && images.length > 1 && !state.mutating
+
+      const onCardDragStart = (event, image) => {
+        if (!canReorder) {
+          event.preventDefault()
+          return
+        }
+        const transfer = event.dataTransfer
+        if (transfer !== null && transfer !== undefined) {
+          try {
+            transfer.setData(DRAG_ID_TYPE, image.id)
+            transfer.setData('text/plain', image.id)
+            transfer.effectAllowed = 'move'
+          } catch (error) {
+            // Some sources disallow custom types; the local id still reorders.
+          }
+        }
+        setReorderDragId(image.id)
+        setReorderOver(null)
+        setDragActive(false)
+      }
+
+      const onCardDragOver = (event, image) => {
+        if (!canReorder) return
+        if (!hasInternalDrag(event) && reorderDragId === null) return
+        event.preventDefault()
+        event.stopPropagation()
+        const transfer = event.dataTransfer
+        if (transfer !== null && transfer !== undefined) transfer.dropEffect = 'move'
+        let after = false
+        try {
+          const rect = event.currentTarget.getBoundingClientRect()
+          after = event.clientY > rect.top + rect.height / 2
+        } catch (error) {
+          after = false
+        }
+        setReorderOver((previous) => {
+          if (previous !== null && previous.id === image.id && previous.after === after) return previous
+          return { id: image.id, after }
+        })
+      }
+
+      const onCardDrop = (event, image) => {
+        if (!canReorder) return
+        if (!hasInternalDrag(event) && reorderDragId === null) return
+        event.preventDefault()
+        event.stopPropagation()
+        let draggedId = reorderDragId
+        const transfer = event.dataTransfer
+        if (transfer !== null && transfer !== undefined) {
+          try {
+            const data = transfer.getData(DRAG_ID_TYPE)
+            if (typeof data === 'string' && data !== '') draggedId = data
+          } catch (error) {
+            // Fall back to the drag-start id kept in state.
+          }
+        }
+        const targetAfter = reorderOver !== null && reorderOver.id === image.id ? reorderOver.after : false
+        setReorderDragId(null)
+        setReorderOver(null)
+        if (draggedId === null || draggedId === undefined || draggedId === image.id) return
+        const ids = images.map((entry) => entry.id)
+        if (ids.indexOf(draggedId) === -1 || ids.indexOf(image.id) === -1) return
+        const without = ids.filter((id) => id !== draggedId)
+        const targetIndex = without.indexOf(image.id)
+        if (targetIndex === -1) return
+        const insertIndex = Math.min(without.length, targetAfter ? targetIndex + 1 : targetIndex)
+        const nextIds = without.slice(0, insertIndex).concat([draggedId], without.slice(insertIndex))
+        void reorderImages(nextIds)
+      }
+
+      const onCardDragEnd = () => {
+        setReorderDragId(null)
+        setReorderOver(null)
+      }
+
       const onDragEnter = (event) => {
         if (!hasFileDrag(event)) return
         event.preventDefault()
@@ -1752,6 +2213,12 @@ window.__ModuleLoader__.load({
         event.preventDefault()
         dragDepth.current = 0
         setDragActive(false)
+        // A gallery card drag is an internal reorder, never a file upload.
+        if (hasInternalDrag(event)) {
+          setReorderDragId(null)
+          setReorderOver(null)
+          return
+        }
         const transfer = event.dataTransfer
         if (transfer === null || transfer === undefined) return
         const files = transfer.files
@@ -1808,12 +2275,206 @@ window.__ModuleLoader__.load({
         await removeImage(image)
       }
 
+      const onPasteImage = async () => {
+        if (pasting || state.uploading) return
+        setPasting(true)
+        try {
+          let files = []
+          try {
+            files = await readClipboardImageFiles(t)
+          } catch (error) {
+            setState({
+              error:
+                errorCode(error) === 'paste-unsupported'
+                  ? messageOf(error)
+                  : msg('pasteFailed', { message: messageOf(error) }),
+            })
+            return
+          }
+          if (files.length === 0) {
+            setState({ error: msg('pasteNoImage') })
+            return
+          }
+          await uploadFiles(files)
+        } finally {
+          setPasting(false)
+        }
+      }
+
+      const runBulk = async (patch) => {
+        if (state.mutating || state.selectedIds.length === 0) return
+        const ok = await bulkUpdate(patch)
+        if (!ok) return
+        setBulkTag('')
+        setBulkTagError('')
+        setBulkConfirmRemove(false)
+      }
+
+      const onAddBulkTag = () => {
+        const raw = bulkTag.trim()
+        if (raw === '') {
+          setBulkTagError(t('tagEmpty'))
+          return
+        }
+        if (raw.length > MAX_TAG_LENGTH) {
+          setBulkTagError(t('tagTooLong'))
+          return
+        }
+        setBulkTagError('')
+        void runBulk({ addTags: [raw] })
+      }
+
+      const onClearSelection = () => {
+        setBulkConfirmRemove(false)
+        setBulkTag('')
+        setBulkTagError('')
+        clearSelection()
+      }
+
+      const onCardSelect = (event, image) => {
+        if (event.metaKey || event.ctrlKey) {
+          toggleSelectedImage(image.id)
+          return
+        }
+        if (event.shiftKey) {
+          selectRangeTo(
+            image.id,
+            filtered.map((entry) => entry.id),
+          )
+          return
+        }
+        selectSingleImage(image.id)
+      }
+
+      const renderBulkToolbar = () => {
+        const count = state.selectedIds.length
+        if (count === 0) return null
+        return h(
+          'div',
+          { className: 'dsh-mb-bulk', role: 'toolbar', 'aria-label': t('selectionToolbar') },
+          h('span', { className: 'dsh-mb-bulk-count', role: 'status' }, t('selectionCount', { count })),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-mb-btn',
+              disabled: state.mutating,
+              'aria-label': t('bulkPinLabel'),
+              title: t('bulkPinLabel'),
+              onClick: () => {
+                void runBulk({ pinned: true })
+              },
+            },
+            t('pin'),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-mb-btn',
+              disabled: state.mutating,
+              'aria-label': t('bulkUnpinLabel'),
+              title: t('bulkUnpinLabel'),
+              onClick: () => {
+                void runBulk({ pinned: false })
+              },
+            },
+            t('unpin'),
+          ),
+          h(
+            'div',
+            { className: 'dsh-mb-bulk-tag' },
+            h('input', {
+              className: 'dsh-mb-input',
+              type: 'text',
+              value: bulkTag,
+              maxLength: MAX_TAG_LENGTH,
+              placeholder: t('bulkTagPlaceholder'),
+              'aria-label': t('bulkAddTagLabel'),
+              'aria-describedby': bulkTagError === '' ? undefined : 'dsh-mb-bulk-tag-error',
+              'aria-invalid': bulkTagError === '' ? undefined : 'true',
+              onChange: (event) => {
+                setBulkTag(event.currentTarget.value)
+                setBulkTagError('')
+              },
+              onKeyDown: (event) => {
+                if (event.key !== 'Enter') return
+                event.preventDefault()
+                onAddBulkTag()
+              },
+            }),
+            h('button', { type: 'button', className: 'dsh-mb-btn', disabled: state.mutating, onClick: onAddBulkTag }, t('addTag')),
+          ),
+          bulkConfirmRemove
+            ? h(
+                React.Fragment,
+                null,
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dsh-mb-btn dsh-mb-btn--danger',
+                    autoFocus: true,
+                    disabled: state.mutating,
+                    onClick: () => {
+                      void runBulk({ delete: true })
+                    },
+                  },
+                  t('confirm'),
+                ),
+                h(
+                  'button',
+                  { type: 'button', className: 'dsh-mb-btn', onClick: () => setBulkConfirmRemove(false) },
+                  t('cancel'),
+                ),
+              )
+            : h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-mb-btn dsh-mb-btn--danger',
+                  disabled: state.mutating,
+                  'aria-label': t('bulkRemoveLabel'),
+                  title: t('bulkRemoveLabel'),
+                  onClick: () => setBulkConfirmRemove(true),
+                },
+                t('remove'),
+              ),
+          h('button', { type: 'button', className: 'dsh-mb-btn', onClick: onClearSelection }, t('clearSelection')),
+          bulkConfirmRemove
+            ? h(
+                'p',
+                { className: 'dsh-mb-bulk-error', role: 'alert' },
+                t('bulkConfirmQuestion', { count }),
+              )
+            : null,
+          bulkTagError !== ''
+            ? h('p', { className: 'dsh-mb-bulk-error', id: 'dsh-mb-bulk-tag-error', role: 'alert' }, bulkTagError)
+            : null,
+          h('p', { className: 'dsh-mb-hint dsh-mb-bulk-hint' }, t('selectionHint')),
+        )
+      }
+
       const renderCard = (image) => {
-        const selected = image.id === state.selectedId
+        const selected = state.selectedIds.indexOf(image.id) !== -1
         const confirming = confirmRemoveId === image.id
+        const dragging = reorderDragId === image.id
+        const dropEdge =
+          reorderOver !== null && reorderOver.id === image.id ? (reorderOver.after ? 'after' : 'before') : null
         return h(
           'li',
-          { key: image.id, className: 'dsh-mb-card', 'data-selected': selected ? 'true' : 'false' },
+          {
+            key: image.id,
+            className: 'dsh-mb-card',
+            'data-selected': selected ? 'true' : 'false',
+            'data-dragging': dragging ? 'true' : 'false',
+            'data-drop': dropEdge === null ? undefined : dropEdge,
+            draggable: canReorder,
+            onDragStart: canReorder ? (event) => onCardDragStart(event, image) : undefined,
+            onDragOver: canReorder ? (event) => onCardDragOver(event, image) : undefined,
+            onDrop: canReorder ? (event) => onCardDrop(event, image) : undefined,
+            onDragEnd: onCardDragEnd,
+          },
           h(
             'button',
             {
@@ -1821,7 +2482,7 @@ window.__ModuleLoader__.load({
               className: 'dsh-mb-thumb-btn',
               'aria-pressed': selected ? 'true' : 'false',
               'aria-label': t('selectImage', { name: image.name }),
-              onClick: () => selectImage(image.id),
+              onClick: (event) => onCardSelect(event, image),
             },
             h(Thumb, { image, alt: image.name }),
           ),
@@ -1979,6 +2640,9 @@ window.__ModuleLoader__.load({
             { className: 'dsh-mb-section-head' },
             h('h2', { className: 'dsh-mb-section-title' }, t('gallery')),
             h('p', { className: 'dsh-mb-hint' }, imageCountText(t, images.length)),
+            images.length > 1
+              ? h('p', { className: 'dsh-mb-hint' }, t(canReorder ? 'reorderHint' : 'reorderFilteredHint'))
+              : null,
           ),
           h(
             'div',
@@ -2042,7 +2706,7 @@ window.__ModuleLoader__.load({
             ),
           )
         }
-        return h(React.Fragment, null, renderActiveStrip(), renderGallery())
+        return h(React.Fragment, null, renderBulkToolbar(), renderActiveStrip(), renderGallery())
       }
 
       const header = h(
@@ -2095,6 +2759,7 @@ window.__ModuleLoader__.load({
         'div',
         { className: 'dsh-mb-drop', role: 'region', 'aria-label': t('dropZoneLabel') },
         h('p', { className: 'dsh-mb-hint' }, t('dropHint')),
+        h('p', { className: 'dsh-mb-hint' }, t('pasteHint')),
         h(
           'button',
           {
@@ -2104,6 +2769,20 @@ window.__ModuleLoader__.load({
             onClick: openFilePicker,
           },
           t('addImages'),
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-mb-btn',
+            disabled: state.uploading || pasting,
+            'aria-label': t('pasteImage'),
+            title: t('pasteImage'),
+            onClick: () => {
+              void onPasteImage()
+            },
+          },
+          pasting ? t('pastingImage') : t('pasteImage'),
         ),
       )
 
@@ -2180,7 +2859,7 @@ window.__ModuleLoader__.load({
                 image: selectedImage,
                 t,
                 mutating: state.mutating,
-                onClose: () => selectImage(null),
+                onClose: closeDetails,
               }),
             )
 

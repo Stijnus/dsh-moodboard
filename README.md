@@ -15,8 +15,13 @@ before it generates or restyles UI.
 
 ## What you get
 
-- **Moodboard panel** in the Web UI (sidebar icon): drag-and-drop image upload,
-  gallery of thumbnails, tag filter, and an active style-guide strip.
+- **Moodboard panel** in the Web UI (sidebar icon): drag-and-drop, clipboard
+  paste or file-picker upload; gallery of thumbnails with drag-to-reorder and
+  multi-select bulk actions; tag filter; and an active style-guide strip.
+- **Capture**: drop files from Finder, paste images with ⌘V/Ctrl+V, or use the
+  Paste / Add images buttons. Every image is downscaled and stored durably.
+- **Organize**: drag cards to set the gallery order, Shift/Cmd-click to select
+  several, then pin, unpin, tag or remove them in one action.
 - **Per-image metadata**: tags, notes, source URL, name — editable in a
   metadata panel, with pin / replace / remove actions.
 - **Active style guide**: pin one or more references. The agent treats pinned
@@ -106,6 +111,8 @@ the tool; these endpoints exist for the panel and for programmatic reads:
 | `PATCH /moodboard/api/images/<id>` | update `name`, `tags`, `notes`, `sourceUrl`, `pinned`, `order` |
 | `POST /moodboard/api/images/<id>/replace` | replace bytes, keep metadata |
 | `DELETE /moodboard/api/images/<id>` | remove |
+| `POST /moodboard/api/images/reorder` | set the complete gallery order `{ ids: [...] }` |
+| `POST /moodboard/api/images/bulk` | bulk `{ ids, pinned?, addTags?, removeTags?, delete? }` |
 | `GET /moodboard/api/active` | active guide with tags/notes/sources/brief |
 | `GET /moodboard/api/query?tag=…&match=any` | tag lookup |
 | `GET /moodboard/api/health` | liveness + image count |

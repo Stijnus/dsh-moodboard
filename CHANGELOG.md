@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-25
+
+### Added
+
+- Clipboard paste of images (⌘V/Ctrl+V) and a toolbar Paste button.
+- Drag-to-reorder gallery cards with a persisted manual order.
+- Multi-select (Shift/Cmd/Ctrl-click) with a bulk toolbar: pin, unpin, add tag,
+  remove.
+- Host endpoints `POST /moodboard/api/images/reorder` and
+  `POST /moodboard/api/images/bulk`.
+
+### Changed
+
+- Gallery order is now the manual board order instead of pinned-first; pinned
+  references remain in the active style-guide strip and keep their badge.
+
 ## [0.1.2] - 2026-10-25
 
 ### Changed

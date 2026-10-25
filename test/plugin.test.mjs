@@ -85,3 +85,25 @@ test('agent tool and prompt section are documented in the host', async () => {
   assert.match(source, /moodboard:style-guide/)
   assert.match(source, /type: 'image'/)
 })
+
+test('0.2 reorder/bulk endpoints and client interactions are wired', async () => {
+  const host = await read('index.js')
+  for (const anchor of [
+    '/api/images/reorder',
+    '/api/images/bulk',
+    'handleReorderImages',
+    'handleBulkImages',
+    'requireIdList',
+  ]) {
+    assert.ok(host.includes(anchor), `host source must reference ${anchor}`)
+  }
+  const client = await read('client.js')
+  for (const anchor of [
+    '/moodboard/api/images/reorder',
+    '/moodboard/api/images/bulk',
+    'application/x-moodboard-id',
+    'clipboardData',
+  ]) {
+    assert.ok(client.includes(anchor), `client source must reference ${anchor}`)
+  }
+})

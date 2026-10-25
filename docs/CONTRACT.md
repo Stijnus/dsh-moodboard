@@ -245,6 +245,8 @@ Codes: `unauthorized` (401), `forbidden` (403), `not-found` (404),
 | `PATCH /moodboard/api/images/<id>` | any of `{ name, tags, notes, sourceUrl, pinned, order }` | `{ ok, image }` |
 | `POST /moodboard/api/images/<id>/replace` | `{ data, mediaType, name? }` | `{ ok, image }` |
 | `DELETE /moodboard/api/images/<id>` | — | `{ ok, removed: "<id>" }` |
+| `POST /moodboard/api/images/reorder` | `{ ids: [<id>…] }` complete permutation | `{ ok: true }` |
+| `POST /moodboard/api/images/bulk` | `{ ids, pinned?, addTags?, removeTags?, delete? }` | `{ ok, updated, removed }` |
 | `GET /moodboard/api/active` | — | `{ ok, guide: { images, allTags, tagCounts, fallback }, brief }` |
 | `GET /moodboard/api/query` | `?tag=a&tag=b&match=any\|all&limit=50` | `{ ok, images, brief, total }` |
 | `GET /moodboard/api/health` | — | `{ ok, version: 1, images: <n> }` |
@@ -260,6 +262,11 @@ Codes: `unauthorized` (401), `forbidden` (403), `not-found` (404),
   `Active moodboard style guide (2 pinned references):\n1. name — tags: a, b; notes: …; source: …`
   Keep each line ≤ 400 chars; include only pinned/all names, tags, notes and
   sources. No HTML.
+- `POST /api/images/reorder` requires every board image id exactly once; it
+  rewrites `order` to the array position and returns `{ ok: true }`.
+- `POST /api/images/bulk` requires at least one operation; unknown ids return
+  `not-found`; `delete` wins over tag/pin updates and returns
+  `{ ok, updated: 0, removed: n }`.
 - `BoardView`: `{ version, updatedAt, images: ImageView[], allTags, tagCounts,
   pinned: [<id>…] }`.
 - `ImageView`: `{ id, name, tags, notes, sourceUrl, pinned, order, createdAt,
@@ -374,6 +381,10 @@ Behaviour:
   Disable when there is no image on the board (title explains why). Never
   submit the draft.
 - The page must not assume a Session exists (it is a global panel).
+- 0.2 additions: clipboard paste of image files, drag-to-reorder while no tag
+  filter is active (POST reorder), multi-select (Shift/Cmd/Ctrl-click) with a
+  bulk toolbar (POST bulk). The gallery renders in `order` sequence; pinned
+  references keep their badge and the active strip.
 
 ## Error and edge rules
 
