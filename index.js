@@ -180,6 +180,7 @@ function createBoardStore(ctx) {
 
   let board = emptyBoard()
   let loaded = false
+  let loadError
   let started = false
   let readyPromise = Promise.resolve()
   let writeChain = Promise.resolve()
@@ -208,6 +209,7 @@ function createBoardStore(ctx) {
       await chmod(backupPath, 0o600).catch(() => {})
     } catch (error) {
       safeLog(ctx, 'warn', `moodboard: could not back up ${boardPath}: ${safeMessage(error)}`)
+      throw error
     }
     safeLog(ctx, 'warn', `moodboard: ${boardPath} ${reason}; starting with an empty board (backup: ${backupPath})`)
   }
@@ -274,6 +276,7 @@ function createBoardStore(ctx) {
   function mutate(mutate) {
     const run = writeChain.then(async () => {
       await readyPromise
+      if (loadError !== undefined) throw loadError
       const draft = cloneBoard(board)
       const result = await mutate(draft)
       draft.version = BOARD_VERSION
@@ -301,14 +304,14 @@ function createBoardStore(ctx) {
       started = true
       readyPromise = load().catch((error) => {
         safeLog(ctx, 'warn', `moodboard: could not load ${boardPath}: ${safeMessage(error)}`)
-        board = emptyBoard()
-        loaded = true
+        loadError = httpError('storage-failed', 'the moodboard could not be loaded; existing data was not changed')
       })
       return readyPromise
     },
     /** Resolves once the activation load finished (successfully or not). */
-    ready() {
-      return readyPromise
+    async ready() {
+      await readyPromise
+      if (loadError !== undefined) throw loadError
     },
     /** Whether the durable board has been read (used by the sync prompt text). */
     isLoaded() {

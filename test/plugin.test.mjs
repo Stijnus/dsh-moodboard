@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { readFile, mkdtemp, mkdir, rm, rename } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { EventEmitter } from 'node:events'
+import { apply } from '../index.js'
 import test from 'node:test'
 
 const root = new URL('../', import.meta.url)
@@ -194,4 +198,68 @@ test('0.2.3 drag end zone and move fallback are wired', async () => {
   ]) {
     assert.ok(client.includes(anchor), `client source must reference ${anchor}`)
   }
+})
+
+async function withBoard(run, prepare = async () => {}) {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-moodboard-test-'))
+  const oldHome = process.env.DSH_HOME
+  try {
+    await prepare(root)
+    process.env.DSH_HOME = root
+    let handler, tool
+    apply({
+      effect: (fn) => fn(),
+      webServer: { register: (route) => { handler = route.handler; return () => {} } },
+      tools: { register: (value) => { tool = value; return () => {} } },
+      systemPrompt: { section: () => () => {} },
+      connection: { admit: () => ({ peer: { principal: { kind: 'owner' } } }) },
+      logger: { warn() {} },
+      attachments: { saveImage: async ({ data, mediaType, name }) => ({ attachmentId: 'test-image', bytes: data.length, mediaType, name, width: 1, height: 1 }) },
+    })
+    const request = (method, path, body) => new Promise((resolve) => {
+      const req = new EventEmitter()
+      req.method = method; req.url = '/moodboard' + path
+      req.headers = { 'content-type': 'application/json' }
+      req.resume = () => {}
+      let status
+      handler(req, {
+        writeHead: (value) => { status = value },
+        end: (value) => resolve({ status, body: JSON.parse(value) }),
+      })
+      setImmediate(() => { if (body !== undefined) req.emit('data', Buffer.from(JSON.stringify(body))); req.emit('end') })
+    })
+    await run({ request, tool, root })
+  } finally {
+    if (oldHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = oldHome
+    await rm(root, { recursive: true, force: true })
+  }
+}
+const upload = { data: 'aW1hZ2U=', mediaType: 'image/png', name: 'reference.png', tags: ['warm'], notes: 'Use soft spacing' }
+
+test('images, tags, notes and pins persist and reach model image blocks', async () => {
+  await withBoard(async ({ request, tool, root }) => {
+    const created = await request('POST', '/api/images', upload)
+    assert.equal(created.status, 200)
+    const id = created.body.image.id
+    const pinned = await request('PATCH', '/api/images/' + id, { pinned: true, tags: ['quiet'], notes: 'Preserve spacing' })
+    assert.equal(pinned.status, 200)
+    const board = JSON.parse(await readFile(join(root, 'moodboard/board.json'), 'utf8'))
+    assert.equal(board.images[0].pinned, true)
+    assert.deepEqual(board.images[0].tags, ['quiet'])
+    const value = await tool.execute({ action: 'active' })
+    assert.equal(value.ok, true)
+    assert.match(value.brief, /Preserve spacing/)
+    assert.equal(tool.output.render({ action: 'active' }, value)[1].type, 'image')
+  })
+})
+
+test('a failed initial read blocks writes instead of replacing existing data', async () => {
+  await withBoard(async ({ request, root }) => {
+    assert.equal((await request('GET', '/api/state')).status, 500)
+    await rename(join(root, 'moodboard/board.json'), join(root, 'moodboard/original-unreadable'))
+    const result = await request('POST', '/api/images', upload)
+    assert.equal(result.status, 500)
+    await assert.rejects(readFile(join(root, 'moodboard/board.json')), { code: 'ENOENT' })
+  }, async (root) => mkdir(join(root, 'moodboard/board.json'), { recursive: true }))
 })

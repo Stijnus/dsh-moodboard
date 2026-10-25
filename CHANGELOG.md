@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.5 — 2026-10-25
+
+- Block reads and writes after an initial board load failure instead of replacing existing data with an empty board.
+- Require a successful recovery backup before replacing corrupt board data.
+- Add behavior tests for persisted image metadata, pins, model image blocks and failed-load protection.
+
 All notable changes to this project are documented in this file.
 
 ## [Unreleased]

@@ -192,3 +192,5 @@ one-time publisher setup, tag/release steps, and post-publish checks are in
 ## License
 
 MIT. Icon and panel screenshot: original artwork for this plugin.
+
+If the saved board cannot be read or its recovery backup cannot be written, the plugin reports a storage error and blocks changes. Correct the storage problem and reload the plugin; existing board data is retained.
