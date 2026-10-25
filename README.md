@@ -25,6 +25,10 @@ before it generates or restyles UI.
 - **Find & inspect**: search by name, tags, notes or source (combinable with
   the tag filter), and open any reference in a full-size lightbox with
   previous/next navigation and keyboard support.
+- **Keyboard & accessibility**: `?` opens the shortcuts list, `/` focuses
+  search, `⌘A` selects all, `⌘⇧A` inverts, `Alt+←/→` reorders a focused card;
+  controls keep visible focus rings, dialogs are labelled and keyboard-trapped,
+  and selection/filter changes are announced through live status regions.
 - **Tag smartness**: autocomplete from the tags already on the board, and a
   tag manager that renames or merges a tag across every reference (with
   per-tag counts).

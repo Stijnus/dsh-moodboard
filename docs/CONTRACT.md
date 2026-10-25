@@ -389,6 +389,11 @@ Behaviour:
   filter is active (POST reorder), multi-select (Shift/Cmd/Ctrl-click) with a
   bulk toolbar (POST bulk). The gallery renders in `order` sequence; pinned
   references keep their badge and the active strip.
+- 0.3 additions: gallery search over name/tags/notes/source; reference
+  lightbox; lazy thumbnail loading with a paginated gallery; `⌘A`/invert
+  selection; keyboard reorder (`Alt+←/→`), `/` search focus and a `?`
+  shortcuts dialog; drag-to-end zone plus details-panel Move left/right
+  fallback.
 
 ## Error and edge rules
 
