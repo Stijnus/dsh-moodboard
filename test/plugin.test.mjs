@@ -143,3 +143,16 @@ test('0.2.2 tag autocomplete, metadata clipboard and palette are wired', async (
     assert.ok(client.includes(anchor), `client source must reference ${anchor}`)
   }
 })
+
+test('0.2.3 select-all and invert selection are wired', async () => {
+  const client = await read('client.js')
+  for (const anchor of [
+    'selectAllImages',
+    'invertSelectedImages',
+    'bulkInvertLabel',
+    'metaKey',
+    'visibleIdsRef',
+  ]) {
+    assert.ok(client.includes(anchor), `client source must reference ${anchor}`)
+  }
+})

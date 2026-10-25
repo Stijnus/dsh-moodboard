@@ -169,9 +169,15 @@ window.__ModuleLoader__.load({
 
         selectionToolbar: 'Selection actions',
         selectionCount: '{count} selected',
-        selectionHint: '⌘/Ctrl-click to add, Shift-click for a range, Esc to clear.',
+        selectionHint: '⌘/Ctrl-click to add, Shift-click for a range, ⌘A selects all, Esc clears.',
         selectionCleared: 'Selection cleared',
         clearSelection: 'Clear selection',
+        selectAll: 'Select all',
+        selectAllLabel: 'Select all visible images',
+        invert: 'Invert',
+        bulkInvertLabel: 'Invert selection',
+        selectionAll: 'Selected {count} images',
+        selectionInverted: 'Selection inverted — {count} selected',
         bulkPinLabel: 'Pin selected images',
         bulkUnpinLabel: 'Unpin selected images',
         bulkPinned: 'Pinned selection ({count})',
@@ -354,9 +360,15 @@ window.__ModuleLoader__.load({
 
         selectionToolbar: '所选图片操作',
         selectionCount: '已选择 {count} 张',
-        selectionHint: '⌘/Ctrl 点击可多选，Shift 点击选择范围，Esc 清除选择。',
+        selectionHint: '⌘/Ctrl 点击可多选，Shift 点击选择范围，⌘A 全选，Esc 清除选择。',
         selectionCleared: '已清除选择',
         clearSelection: '清除选择',
+        selectAll: '全选',
+        selectAllLabel: '选择所有当前显示的图片',
+        invert: '反选',
+        bulkInvertLabel: '反选当前选择',
+        selectionAll: '已选择 {count} 张图片',
+        selectionInverted: '已反选，当前选择 {count} 张',
         bulkPinLabel: '钉选所选图片',
         bulkUnpinLabel: '取消钉选所选图片',
         bulkPinned: '已钉选所选图片（{count}）',
@@ -1147,6 +1159,37 @@ window.__ModuleLoader__.load({
       if (snapshot.selectedIds.length === 0 && snapshot.selectedId === null && snapshot.selectionAnchorId === null) return
       setState({ selectedIds: [], selectionAnchorId: null })
       selectImage(null)
+    }
+
+    /** Normalize an id list for select-all/invert. */
+    function uniqueIdList(ids) {
+      if (!Array.isArray(ids)) return []
+      const list = []
+      for (const id of ids) {
+        if (typeof id !== 'string' || id === '') continue
+        if (!list.includes(id)) list.push(id)
+      }
+      return list
+    }
+
+    /** Select every currently visible image (bulk selection; details closed). */
+    function selectAllImages(ids) {
+      const list = uniqueIdList(ids)
+      if (list.length === 0) return 0
+      setState({ selectedIds: list, selectionAnchorId: list[list.length - 1] })
+      selectImage(null)
+      return list.length
+    }
+
+    /** Invert the selection over the currently visible images. */
+    function invertSelectedImages(ids) {
+      const list = uniqueIdList(ids)
+      if (list.length === 0) return 0
+      const current = new Set(snapshot.selectedIds)
+      const next = list.filter((id) => !current.has(id))
+      setState({ selectedIds: next, selectionAnchorId: next.length > 0 ? next[next.length - 1] : null })
+      selectImage(null)
+      return next.length
     }
 
     /** Close the details panel and drop the card selection with it. */
@@ -2760,6 +2803,7 @@ window.__ModuleLoader__.load({
       const mergeOpenRef = useRef(false)
       const mergeOpenerRef = useRef(null)
       const clickSelectionRef = useRef(null)
+      const visibleIdsRef = useRef([])
       mergeOpenRef.current = mergeOpen
 
       useEffect(() => {
@@ -2783,8 +2827,25 @@ window.__ModuleLoader__.load({
           void uploadFiles(files)
         }
         const onKeyDown = (event) => {
-          if (event === null || event === undefined || event.key !== 'Escape') return
+          if (event === null || event === undefined) return
           if (event.defaultPrevented) return
+          const modified = event.metaKey === true || event.ctrlKey === true
+          if (modified && event.altKey !== true && (event.key === 'a' || event.key === 'A')) {
+            if (mergeOpenRef.current) return
+            if (lightboxIdRef.current !== null) return
+            if (isEditableTarget(event.target)) return
+            if (getSnapshot().pendingSelectId !== undefined) return
+            const ids = visibleIdsRef.current
+            if (!Array.isArray(ids) || ids.length === 0) return
+            event.preventDefault()
+            if (event.shiftKey === true) {
+              setStatus(msg('selectionInverted', { count: invertSelectedImages(ids) }))
+            } else {
+              setStatus(msg('selectionAll', { count: selectAllImages(ids) }))
+            }
+            return
+          }
+          if (event.key !== 'Escape') return
           // The merge dialog owns Esc while it is open (its own handler closes it).
           if (mergeOpenRef.current) return
           // The lightbox owns Esc while it is open (its own handler closes it).
@@ -2842,6 +2903,7 @@ window.__ModuleLoader__.load({
         }
         return matchesSearch(image, searchNeedle)
       })
+      visibleIdsRef.current = filtered.map((image) => image.id)
       const lightboxImage = lightboxId === null ? null : images.find((image) => image.id === lightboxId) || null
       const lightboxUrl = useImageUrl(lightboxImage)
       // Navigate the visible order; an image hidden by a changed filter still
@@ -3317,6 +3379,20 @@ window.__ModuleLoader__.load({
                 },
                 t('remove'),
               ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-mb-btn',
+              disabled: state.mutating,
+              'aria-label': t('bulkInvertLabel'),
+              title: t('bulkInvertLabel'),
+              onClick: () => {
+                setStatus(msg('selectionInverted', { count: invertSelectedImages(filtered.map((image) => image.id)) }))
+              },
+            },
+            t('invert'),
+          ),
           h('button', { type: 'button', className: 'dsh-mb-btn', onClick: onClearSelection }, t('clearSelection')),
           bulkConfirmRemove
             ? h(
@@ -3651,6 +3727,20 @@ window.__ModuleLoader__.load({
                   },
                   t('tagChip', { tag, count: countForTag(board, tag) }),
                 ),
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-mb-chip dsh-mb-chip--action',
+                  disabled: filtered.length === 0,
+                  title: t('selectAllLabel'),
+                  'aria-label': t('selectAllLabel'),
+                  onClick: () => {
+                    setStatus(msg('selectionAll', { count: selectAllImages(filtered.map((image) => image.id)) }))
+                  },
+                },
+                t('selectAll'),
               ),
               h(
                 'button',

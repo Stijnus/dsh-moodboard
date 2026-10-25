@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Select all visible images (⌘/Ctrl+A) and invert the selection
+  (⌘/Ctrl+Shift+A or the bulk bar's Invert action), with toolbar buttons and
+  live status announcements; shortcuts stay inert in text fields, dialogs and
+  the lightbox.
+
 ## [0.2.2] - 2026-10-25
 
 ### Added
