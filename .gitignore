@@ -4,3 +4,7 @@ node_modules/
 .env
 .playwright-cli/
 coverage/
+
+.dev-home/
+.dev-home-empty/
+.pnpm-store/

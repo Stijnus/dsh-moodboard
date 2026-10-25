@@ -221,6 +221,8 @@ window.__ModuleLoader__.load({
         tagMergeDone: 'Merged “{from}” into “{to}” — {count} updated.',
         tagMergeFailed: 'Could not merge tags: {message}',
         tagMergeClose: 'Close tag manager',
+        tagMergeTitle: 'Merge tags',
+        editDetails: 'Edit details',
 
         palette: 'Palette',
         paletteHint: 'Dominant colors from this board',
@@ -437,6 +439,8 @@ window.__ModuleLoader__.load({
         tagMergeDone: '已将“{from}”合并到“{to}”——已更新 {count}。',
         tagMergeFailed: '无法合并标签：{message}',
         tagMergeClose: '关闭标签管理',
+        tagMergeTitle: '合并标签',
+        editDetails: '编辑详情',
 
         palette: '配色',
         paletteHint: '灵感板中的主要颜色',
@@ -1845,6 +1849,7 @@ window.__ModuleLoader__.load({
 
 /* ---------------------------------------------------------------- header */
 
+.dsh-mb-page { width: 100%; max-width: 1680px; margin: 0 auto; }
 .dsh-mb-header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; flex: none; padding-top: calc(20px + var(--dsh-frame-top-clearance, 0px)); }
 .dsh-mb-head { display: flex; align-items: center; gap: 11px; min-width: 0; }
 .dsh-mb-head-icon { display: grid; place-items: center; flex: none; width: 38px; height: 38px; border-radius: 13px; background: linear-gradient(145deg, var(--mb-walnut), var(--mb-walnut-deep)); color: var(--mb-amber-soft); box-shadow: var(--mb-shadow-1), inset 0 1px 0 rgba(255, 255, 255, 0.14); }
@@ -1879,7 +1884,7 @@ window.__ModuleLoader__.load({
 .dsh-mb-banner-text { flex: 1; min-width: 0; margin: 0; overflow-wrap: anywhere; font-size: 12.5px; }
 .dsh-mb-uploads { display: flex; flex-wrap: wrap; gap: 6px; flex: none; margin: 0; padding: 0; list-style: none; }
 .dsh-mb-upload-row { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 10px; border: 1px solid var(--mb-line); border-radius: 999px; background: var(--mb-surface); color: var(--dsw-alias-label-secondary); font-size: 11.5px; overflow-wrap: anywhere; }
-.dsh-mb-upload-row[data-state='done'] { color: var(--dsw-alias-state-success-primary); border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 26%, transparent); }
+.dsh-mb-upload-row[data-state='done'] { color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 55%, var(--dsw-alias-label-primary)); border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 26%, transparent); }
 .dsh-mb-upload-row[data-state='error'] { color: var(--dsw-alias-state-error-primary); border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 30%, transparent); }
 .dsh-mb-uploads-head { display: flex; align-items: center; gap: 8px; flex: none; }
 
@@ -1887,6 +1892,7 @@ window.__ModuleLoader__.load({
 
 .dsh-mb-body { display: flex; flex: 1; gap: 18px; min-height: 0; }
 .dsh-mb-main { display: flex; flex-direction: column; gap: 18px; flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 2px 4px 12px 0; scrollbar-gutter: stable; }
+.dsh-mb-page[data-bulk='true'] .dsh-mb-main { padding-bottom: 78px; }
 .dsh-mb-side { display: flex; flex-direction: column; gap: 10px; flex: 0 0 360px; min-width: 0; height: 100%; overflow: hidden; padding-left: 18px; border-left: 1px solid color-mix(in srgb, var(--mb-walnut) 12%, var(--mb-line)); }
 .dsh-mb-section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .dsh-mb-section-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
@@ -1900,7 +1906,7 @@ window.__ModuleLoader__.load({
 
 /* ---------------------------------------------------- active style guide */
 
-.dsh-mb-hero { position: relative; display: flex; flex-direction: column; gap: 12px; flex: none; overflow: hidden; padding: 16px 18px 17px; border-radius: var(--mb-r-lg); background: radial-gradient(130% 150% at 88% 128%, rgba(223, 162, 75, 0.5), transparent 58%), radial-gradient(100% 120% at 0% -20%, rgba(79, 140, 130, 0.28), transparent 60%), linear-gradient(135deg, #2f2119 0%, #483021 55%, #5d3e2a 100%); color: var(--mb-cream); box-shadow: var(--mb-shadow-2), inset 0 1px 0 rgba(255, 255, 255, 0.1); }
+.dsh-mb-hero { position: relative; display: flex; flex-direction: column; gap: 10px; flex: none; overflow: hidden; padding: 14px 16px 15px; border-radius: var(--mb-r-lg); background: radial-gradient(130% 150% at 88% 128%, rgba(223, 162, 75, 0.5), transparent 58%), radial-gradient(100% 120% at 0% -20%, rgba(79, 140, 130, 0.28), transparent 60%), linear-gradient(135deg, #2f2119 0%, #483021 55%, #5d3e2a 100%); color: var(--mb-cream); box-shadow: var(--mb-shadow-2), inset 0 1px 0 rgba(255, 255, 255, 0.1); }
 .dsh-mb-hero::after { content: ''; position: absolute; inset: auto 0 0; height: 3px; background: linear-gradient(90deg, transparent, var(--mb-amber), transparent); opacity: 0.7; pointer-events: none; }
 .dsh-mb-hero-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
 .dsh-mb-hero-title { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--mb-cream); font-size: 15px; font-weight: 650; letter-spacing: -0.012em; }
@@ -1910,8 +1916,8 @@ window.__ModuleLoader__.load({
 .dsh-mb-hero-empty { display: flex; align-items: center; gap: 9px; margin: 0; padding: 12px 14px; border: 1px dashed rgba(248, 243, 233, 0.26); border-radius: 12px; color: rgba(248, 243, 233, 0.72); font-size: 12.5px; }
 .dsh-mb-hero .dsh-mb-btn { border-color: rgba(248, 243, 233, 0.16); background: rgba(248, 243, 233, 0.08); color: var(--mb-cream); }
 .dsh-mb-hero .dsh-mb-btn:hover:not(:disabled) { border-color: rgba(248, 243, 233, 0.3); background: rgba(248, 243, 233, 0.16); }
-.dsh-mb-active { display: flex; gap: 12px; overflow-x: auto; margin: 0; padding: 2px 2px 6px; scroll-snap-type: x proximity; scrollbar-width: thin; }
-.dsh-mb-active-item { display: flex; flex-direction: column; gap: 6px; flex: 0 0 156px; min-width: 0; scroll-snap-align: start; }
+.dsh-mb-active { display: flex; gap: 10px; overflow-x: auto; margin: 0; padding: 2px 2px 6px; scroll-snap-type: x proximity; scrollbar-width: thin; }
+.dsh-mb-active-item { display: flex; flex-direction: column; gap: 6px; flex: 0 0 144px; min-width: 0; scroll-snap-align: start; }
 .dsh-mb-active-thumb { position: relative; display: block; width: 100%; aspect-ratio: 16 / 10; padding: 0; overflow: hidden; border: 1px solid rgba(248, 243, 233, 0.18); border-radius: 12px; background: rgba(248, 243, 233, 0.08); cursor: zoom-in; scroll-margin-top: 12px; }
 .dsh-mb-active-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform 0.35s var(--mb-ease); }
 .dsh-mb-active-thumb:hover img { transform: scale(1.045); }
@@ -1940,7 +1946,7 @@ window.__ModuleLoader__.load({
 
 /* ------------------------------------------------------------------ grid */
 
-.dsh-mb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 14px; margin: 0; padding: 0; list-style: none; }
+.dsh-mb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 14px; margin: 0; padding: 0; list-style: none; }
 .dsh-mb-card { position: relative; display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--mb-line); border-radius: var(--mb-r-md); background: var(--mb-surface); box-shadow: var(--mb-shadow-1); transition: transform 0.2s var(--mb-ease), box-shadow 0.2s var(--mb-ease), border-color 0.2s var(--mb-ease); }
 .dsh-mb-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--mb-walnut) 22%, var(--mb-line)); box-shadow: var(--mb-shadow-2); }
 .dsh-mb-card:focus-within { border-color: color-mix(in srgb, var(--mb-amber) 58%, var(--mb-line)); }
@@ -1986,7 +1992,7 @@ window.__ModuleLoader__.load({
 
 /* --------------------------------------------------------------- loading */
 
-.dsh-mb-skeleton-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 14px; }
+.dsh-mb-skeleton-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 14px; }
 .dsh-mb-skeleton { height: 196px; border: 1px solid var(--mb-line); border-radius: var(--mb-r-md); background: linear-gradient(100deg, var(--mb-warm-tint) 22%, var(--mb-warm-tint-2) 42%, var(--mb-warm-tint) 62%); background-size: 220% 100%; animation: dsh-mb-shimmer 1.5s linear infinite; }
 .dsh-mb-skeleton--tall { height: 260px; }
 @keyframes dsh-mb-shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
@@ -2011,7 +2017,7 @@ window.__ModuleLoader__.load({
 .dsh-mb-preview .dsh-mb-thumb-placeholder { height: 150px; }
 .dsh-mb-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .dsh-mb-label { color: var(--dsw-alias-label-secondary); font-size: 11.5px; font-weight: 500; }
-.dsh-mb-input, .dsh-mb-textarea { box-sizing: border-box; width: 100%; height: 34px; padding: 6px 10px; border: 1px solid var(--mb-line); border-radius: var(--mb-r-sm); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; transition: border-color 0.15s var(--mb-ease), box-shadow 0.15s var(--mb-ease), background 0.15s var(--mb-ease); }
+.dsh-mb-input, .dsh-mb-textarea { box-sizing: border-box; width: 100%; height: 34px; padding: 6px 10px; border: 1px solid color-mix(in srgb, var(--dsw-alias-label-secondary) 52%, transparent); border-radius: var(--mb-r-sm); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; transition: border-color 0.15s var(--mb-ease), box-shadow 0.15s var(--mb-ease), background 0.15s var(--mb-ease); }
 .dsh-mb-input:hover, .dsh-mb-textarea:hover { border-color: var(--mb-line-strong); }
 .dsh-mb-input:focus, .dsh-mb-textarea:focus { outline: none; border-color: color-mix(in srgb, var(--mb-amber) 70%, var(--mb-line-strong)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--mb-amber) 20%, transparent); background: var(--mb-surface); }
 .dsh-mb-textarea { min-height: 92px; height: auto; padding: 9px 10px; resize: vertical; line-height: 1.55; }
@@ -2030,11 +2036,11 @@ window.__ModuleLoader__.load({
 .dsh-mb-switch[aria-checked='true'] .dsh-mb-switch-track { border-color: var(--mb-walnut); background: var(--mb-walnut); }
 .dsh-mb-switch[aria-checked='true'] .dsh-mb-switch-knob { transform: translateX(15px); background: var(--mb-cream); }
 .dsh-mb-switch-text { flex: 1; min-width: 0; }
-.dsh-mb-dirty { color: var(--dsw-alias-state-warn-primary); font-size: 11.5px; }
-.dsh-mb-saved { display: inline-flex; align-items: center; gap: 4px; color: var(--dsw-alias-state-success-primary); font-size: 11.5px; }
+.dsh-mb-dirty { color: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 52%, var(--dsw-alias-label-primary)); font-size: 11.5px; }
+.dsh-mb-saved { display: inline-flex; align-items: center; gap: 4px; color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 55%, var(--dsw-alias-label-primary)); font-size: 11.5px; }
 .dsh-mb-pending { display: flex; flex-direction: column; gap: 8px; flex: none; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--dsw-alias-state-warn-primary) 34%, transparent); border-radius: var(--mb-r-sm); background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 9%, var(--mb-surface)); font-size: 12px; }
 .dsh-mb-pending-actions { display: flex; justify-content: flex-end; gap: 6px; }
-.dsh-mb-link { color: var(--mb-walnut); font-weight: 500; overflow-wrap: anywhere; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--mb-walnut) 38%, transparent); text-underline-offset: 2px; }
+.dsh-mb-link { color: color-mix(in srgb, var(--mb-amber) 44%, var(--dsw-alias-label-primary)); font-weight: 500; overflow-wrap: anywhere; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--mb-walnut) 38%, transparent); text-underline-offset: 2px; }
 .dsh-mb-link:hover { text-decoration-color: currentColor; }
 .dsh-mb-visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .dsh-mb-page :focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; border-radius: 4px; }
@@ -2050,13 +2056,14 @@ window.__ModuleLoader__.load({
 .dsh-mb-swatch { width: 22px; height: 22px; padding: 0; border: 1px solid rgba(28, 19, 13, 0.12); border-radius: 7px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16); cursor: pointer; transition: transform 0.15s var(--mb-ease), box-shadow 0.15s var(--mb-ease); }
 .dsh-mb-swatch:hover { transform: translateY(-2px) scale(1.06); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2), 0 4px 10px -4px rgba(0, 0, 0, 0.35); }
 .dsh-mb-palette-hint { margin: 0 0 0 auto; color: var(--dsw-alias-label-secondary); font-size: 11.5px; }
-.dsh-mb-palette-status { color: var(--dsw-alias-state-success-primary); font-size: 11.5px; }
+.dsh-mb-palette-status { color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 55%, var(--dsw-alias-label-primary)); font-size: 11.5px; }
 .dsh-mb-palette-status[data-state='error'] { color: var(--dsw-alias-state-error-primary); }
 
 /* ------------------------------------------------------------------ bulk */
 
 .dsh-mb-bulk { position: fixed; left: 50%; bottom: 22px; z-index: 55; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: min(880px, calc(100vw - 32px)); padding: 8px 10px; border: 1px solid rgba(248, 243, 233, 0.14); border-radius: 999px; background: color-mix(in srgb, #241a12 94%, transparent); color: var(--mb-cream); box-shadow: 0 22px 60px -20px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.18); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); transform: translateX(-50%); animation: dsh-mb-rise 0.2s var(--mb-ease); }
 @keyframes dsh-mb-rise { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.dsh-mb-page:has(.dsh-mb-side) .dsh-mb-bulk { left: calc(50% - 180px); }
 .dsh-mb-bulk-count { display: inline-flex; align-items: center; height: 28px; padding: 0 11px; border-radius: 999px; background: color-mix(in srgb, var(--mb-amber) 24%, transparent); color: var(--mb-amber-soft); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dsh-mb-bulk-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; border: 1px solid transparent; border-radius: 50%; background: transparent; color: var(--mb-cream); cursor: pointer; transition: background 0.15s var(--mb-ease), border-color 0.15s var(--mb-ease); }
 .dsh-mb-bulk-btn:hover:not(:disabled) { border-color: rgba(248, 243, 233, 0.16); background: rgba(248, 243, 233, 0.14); }
@@ -2064,11 +2071,11 @@ window.__ModuleLoader__.load({
 .dsh-mb-bulk-btn--danger { color: #ffc9b8; }
 .dsh-mb-bulk-btn--danger:hover:not(:disabled) { background: rgba(224, 90, 60, 0.26); }
 .dsh-mb-bulk-tag { display: flex; align-items: center; gap: 4px; }
-.dsh-mb-bulk-tag .dsh-mb-input { width: 150px; height: 30px; border-color: rgba(248, 243, 233, 0.16); border-radius: 999px; background: rgba(248, 243, 233, 0.08); color: var(--mb-cream); font-size: 12px; }
+.dsh-mb-bulk-tag .dsh-mb-input { width: 168px; height: 30px; border-color: rgba(248, 243, 233, 0.16); border-radius: 999px; background: rgba(248, 243, 233, 0.08); color: var(--mb-cream); font-size: 12px; }
 .dsh-mb-bulk-tag .dsh-mb-input::placeholder { color: rgba(248, 243, 233, 0.5); }
 .dsh-mb-bulk-tag .dsh-mb-btn { height: 30px; border-color: rgba(248, 243, 233, 0.16); border-radius: 999px; background: rgba(248, 243, 233, 0.1); color: var(--mb-cream); }
 .dsh-mb-bulk-tag .dsh-mb-btn:hover:not(:disabled) { background: rgba(248, 243, 233, 0.18); border-color: rgba(248, 243, 233, 0.26); }
-.dsh-mb-bulk-hint { flex: 1 1 100%; order: 99; margin: 0; color: rgba(248, 243, 233, 0.52); font-size: 10.5px; text-align: center; }
+.dsh-mb-bulk-hint { flex: 1 1 100%; order: 99; margin: 0; color: rgba(248, 243, 233, 0.68); font-size: 10.5px; text-align: center; }
 .dsh-mb-bulk-error { flex: 1 1 100%; order: 98; margin: 0; color: #ffb4a2; font-size: 11px; text-align: center; overflow-wrap: anywhere; }
 
 /* --------------------------------------------------------------- overlays */
@@ -2082,7 +2089,10 @@ window.__ModuleLoader__.load({
 @keyframes dsh-mb-fade { from { opacity: 0; } to { opacity: 1; } }
 .dsh-mb-lightbox-dialog { position: relative; display: flex; flex-direction: column; width: min(960px, 100%); max-height: 100%; min-height: 0; overflow: hidden; border: 1px solid color-mix(in srgb, var(--mb-walnut) 26%, transparent); border-radius: 22px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); box-shadow: 0 44px 120px -32px rgba(0, 0, 0, 0.62); }
 .dsh-mb-lightbox-head { display: flex; align-items: center; gap: 8px; flex: none; padding: 12px 16px; border-bottom: 1px solid color-mix(in srgb, var(--mb-walnut) 9%, transparent); }
-.dsh-mb-lightbox-title { flex: 1; min-width: 0; margin: 0; overflow: hidden; font-size: 14px; font-weight: 600; line-height: 22px; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-mb-lightbox-title { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; margin: 0; overflow: hidden; font-size: 14px; font-weight: 600; line-height: 22px; white-space: nowrap; }
+.dsh-mb-lightbox-title > span:first-child + * { overflow: hidden; text-overflow: ellipsis; }
+.dsh-mb-lightbox-counter { flex: none; padding: 2px 8px; border-radius: 999px; background: var(--mb-warm-tint); color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.dsh-mb-lightbox-actions { display: flex; align-items: center; gap: 6px; flex: none; }
 .dsh-mb-lightbox-figure { position: relative; display: flex; flex: 1 1 auto; align-items: center; justify-content: center; min-height: 0; padding: 16px 58px; background: radial-gradient(120% 120% at 50% 0%, color-mix(in srgb, var(--mb-amber) 8%, transparent), transparent 60%), var(--dsw-alias-bg-layer-2); }
 .dsh-mb-lightbox-image { display: block; max-width: 100%; max-height: min(58vh, 600px); object-fit: contain; border-radius: 12px; background: #0d0b09; box-shadow: var(--mb-shadow-2); }
 .dsh-mb-lightbox-figure .dsh-mb-thumb-placeholder { height: 200px; border-radius: 12px; }
@@ -2121,9 +2131,9 @@ window.__ModuleLoader__.load({
 
 @media (max-width: 1100px) {
   .dsh-mb-side { flex-basis: 330px; padding-left: 14px; }
-  .dsh-mb-grid, .dsh-mb-skeleton-grid { grid-template-columns: repeat(auto-fill, minmax(164px, 1fr)); }
+  .dsh-mb-grid, .dsh-mb-skeleton-grid { grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); }
 }
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .dsh-mb-body { flex-direction: column; overflow-y: auto; }
   .dsh-mb-main { overflow: visible; padding-right: 0; }
   .dsh-mb-side { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 70; height: auto; max-height: 86vh; padding-left: 0; border-left: 0; }
@@ -2135,6 +2145,14 @@ window.__ModuleLoader__.load({
 }
 @media (max-width: 640px) {
   .dsh-mb-page { padding: 0 14px 16px; gap: 12px; }
+  .dsh-mb-hero { padding: 12px; }
+  .dsh-mb-hero-hint { display: none; }
+  .dsh-mb-active-item { flex-basis: 132px; }
+  .dsh-mb-palette { padding: 8px 10px; gap: 6px; }
+  .dsh-mb-palette-icon, .dsh-mb-palette-label, .dsh-mb-palette-hint { display: none; }
+  .dsh-mb-palette-swatches { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .dsh-mb-palette-swatches::-webkit-scrollbar { display: none; }
+  .dsh-mb-swatch { width: 20px; height: 20px; flex: none; }
   .dsh-mb-title { font-size: 19px; }
   .dsh-mb-head-icon { width: 34px; height: 34px; border-radius: 12px; }
   .dsh-mb-header-actions { width: 100%; margin-left: 0; }
@@ -2159,6 +2177,8 @@ window.__ModuleLoader__.load({
 
 @media (hover: none) {
   .dsh-mb-card-actions { opacity: 1; transform: none; }
+  .dsh-mb-card-actions .dsh-mb-btn:nth-child(3), .dsh-mb-card-actions .dsh-mb-btn:nth-child(4) { display: none; }
+  .dsh-mb-reorder-hint { display: none; }
   .dsh-mb-active-thumb { cursor: pointer; }
 }
 
@@ -2174,10 +2194,11 @@ window.__ModuleLoader__.load({
 `
 
     const REFERENCE_CSS = `
-.dsh-mb-ref-btn { transition: background 0.12s ease-out, color 0.12s ease-out; }
-.dsh-mb-ref-btn:hover:not(:disabled) { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.dsh-mb-ref-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; line-height: 1; white-space: nowrap; transition: background 0.15s ease-out, border-color 0.15s ease-out, color 0.15s ease-out; }
+.dsh-mb-ref-btn:hover:not(:disabled) { border-color: color-mix(in srgb, #6f4b33 26%, var(--dsw-alias-border-l1)); background: color-mix(in srgb, #6f4b33 9%, transparent); color: var(--dsw-alias-label-primary); }
 .dsh-mb-ref-btn:disabled { opacity: 0.5; cursor: default; }
 .dsh-mb-ref-btn:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .dsh-mb-ref-btn { transition: none; } }
 `
 
     // ---------------------------------------------------------------------------
@@ -2424,6 +2445,16 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function IconPencil(props) {
+      const size = typeof props.size === 'number' ? props.size : 14
+      return h(
+        'svg',
+        { width: size, height: size, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true', focusable: 'false' },
+        h('path', { d: 'M12.4 3.6l4 4L7.6 16.4H3.6v-4L12.4 3.6z' }),
+        h('path', { d: 'M10.9 5.1l4 4' }),
+      )
+    }
+
     // ---------------------------------------------------------------------------
     // Image thumbnail with cached blob URL
     // ---------------------------------------------------------------------------
@@ -2665,20 +2696,28 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { className: 'dsh-mb-details-head' },
-          h('h2', { className: 'dsh-mb-details-title', title: image.name }, image.name),
+          h(
+            'div',
+            { className: 'dsh-mb-details-heading' },
+            h('span', { className: 'dsh-mb-details-kicker' }, t('detailsKicker')),
+            h('h2', { className: 'dsh-mb-details-title', title: image.name }, image.name),
+          ),
           h(
             'button',
             {
               type: 'button',
-              className: 'dsh-mb-btn dsh-mb-btn--icon',
+              className: 'dsh-mb-btn dsh-mb-btn--icon dsh-mb-btn--ghost',
               'aria-label': t('closeDetails'),
               title: t('closeDetails'),
               onClick: props.onClose,
             },
-            h(IconClose, { size: 12 }),
+            h(IconClose, { size: 13 }),
           ),
         ),
-        h('div', { className: 'dsh-mb-preview' }, h(Thumb, { image, alt: t('previewAlt', { name: image.name }) })),
+        h(
+          'div',
+          { className: 'dsh-mb-details-body' },
+          h('div', { className: 'dsh-mb-preview' }, h(Thumb, { image, alt: t('previewAlt', { name: image.name }) })),
         h(
           'div',
           { className: 'dsh-mb-field' },
@@ -2834,47 +2873,25 @@ window.__ModuleLoader__.load({
             'button',
             {
               type: 'button',
-              className: 'dsh-mb-btn dsh-mb-btn--primary',
-              disabled: saving || !dirty || props.mutating,
-              'aria-busy': saving ? 'true' : undefined,
-              onClick: onSave,
-            },
-            saving ? t('saving') : t('save'),
-          ),
-          h(
-            'button',
-            { type: 'button', className: 'dsh-mb-btn', disabled: saving || !dirty, onClick: onCancel },
-            t('cancel'),
-          ),
-          dirty ? h('span', { className: 'dsh-mb-dirty' }, t('dirty')) : null,
-          saved ? h('span', { className: 'dsh-mb-saved', role: 'status' }, t('saved')) : null,
-        ),
-        h(
-          'div',
-          { className: 'dsh-mb-details-actions' },
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dsh-mb-btn',
+              className: 'dsh-mb-btn dsh-mb-btn--icon',
               disabled: saving || removing || props.mutating || !props.canMove,
               title: t('moveLeftLabel', { name: image.name }),
               'aria-label': t('moveLeftLabel', { name: image.name }),
               onClick: () => props.onMove(-1),
             },
-            t('moveLeft'),
+            h(IconChevron, { size: 12, direction: 'left' }),
           ),
           h(
             'button',
             {
               type: 'button',
-              className: 'dsh-mb-btn',
+              className: 'dsh-mb-btn dsh-mb-btn--icon',
               disabled: saving || removing || props.mutating || !props.canMove,
               title: t('moveRightLabel', { name: image.name }),
               'aria-label': t('moveRightLabel', { name: image.name }),
               onClick: () => props.onMove(1),
             },
-            t('moveRight'),
+            h(IconChevron, { size: 12, direction: 'right' }),
           ),
           h(
             'button',
@@ -2884,6 +2901,7 @@ window.__ModuleLoader__.load({
               disabled: saving || replaceBusy || removing,
               onClick: requestReplace,
             },
+            h(IconSwap, { size: 13 }),
             replaceBusy ? t('replaceBusy') : t('replace'),
           ),
           confirmRemove
@@ -2921,6 +2939,32 @@ window.__ModuleLoader__.load({
         confirmRemove
           ? h('p', { className: 'dsh-mb-hint', role: 'alert' }, t('confirmRemove', { name: image.name }))
           : null,
+        ),
+        h(
+          'div',
+          { className: 'dsh-mb-details-foot' },
+          saved
+            ? h('span', { className: 'dsh-mb-saved', role: 'status' }, h(IconCheck, { size: 11 }), t('saved'))
+            : dirty
+              ? h('span', { className: 'dsh-mb-dirty' }, t('dirty'))
+              : null,
+          h(
+            'button',
+            { type: 'button', className: 'dsh-mb-btn', disabled: saving || !dirty, onClick: onCancel },
+            t('cancel'),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-mb-btn dsh-mb-btn--primary',
+              disabled: saving || !dirty || props.mutating,
+              'aria-busy': saving ? 'true' : undefined,
+              onClick: onSave,
+            },
+            saving ? t('saving') : t('save'),
+          ),
+        ),
         h('input', {
           ref: replaceInputRef,
           type: 'file',
@@ -2985,6 +3029,7 @@ window.__ModuleLoader__.load({
       return h(
         'section',
         { className: 'dsh-mb-palette', 'aria-label': t('palette'), title: t('paletteHint') },
+        h('span', { className: 'dsh-mb-palette-icon', 'aria-hidden': 'true' }, h(IconPalette, { size: 15 })),
         h('span', { className: 'dsh-mb-palette-label' }, t('palette')),
         h(
           'div',
@@ -3004,7 +3049,7 @@ window.__ModuleLoader__.load({
           ),
         ),
         feedback === null
-          ? null
+          ? h('p', { className: 'dsh-mb-palette-hint' }, t('boardPaletteHint'))
           : h(
               'span',
               {
@@ -3159,7 +3204,7 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { className: 'dsh-mb-merge-head' },
-            h('h2', { id: headingId, className: 'dsh-mb-merge-title' }, t('manageTags')),
+            h('h2', { id: headingId, className: 'dsh-mb-merge-title' }, t('tagMergeTitle')),
             h(
               'button',
               {
@@ -3978,7 +4023,7 @@ window.__ModuleLoader__.load({
 
       const renderBulkToolbar = () => {
         const count = state.selectedIds.length
-        if (count === 0) return null
+        if (count < 2) return null
         return h(
           'div',
           { className: 'dsh-mb-bulk', role: 'toolbar', 'aria-label': t('selectionToolbar') },
@@ -3987,7 +4032,7 @@ window.__ModuleLoader__.load({
             'button',
             {
               type: 'button',
-              className: 'dsh-mb-btn',
+              className: 'dsh-mb-bulk-btn',
               disabled: state.mutating,
               'aria-label': t('bulkPinLabel'),
               title: t('bulkPinLabel'),
@@ -3995,13 +4040,13 @@ window.__ModuleLoader__.load({
                 void runBulk({ pinned: true })
               },
             },
-            t('pin'),
+            h(IconPin, { size: 14 }),
           ),
           h(
             'button',
             {
               type: 'button',
-              className: 'dsh-mb-btn',
+              className: 'dsh-mb-bulk-btn',
               disabled: state.mutating,
               'aria-label': t('bulkUnpinLabel'),
               title: t('bulkUnpinLabel'),
@@ -4009,7 +4054,7 @@ window.__ModuleLoader__.load({
                 void runBulk({ pinned: false })
               },
             },
-            t('unpin'),
+            h(IconPinOff, { size: 14 }),
           ),
           h(
             'div',
@@ -4034,7 +4079,12 @@ window.__ModuleLoader__.load({
                 onAddBulkTag()
               },
             }),
-            h('button', { type: 'button', className: 'dsh-mb-btn', disabled: state.mutating, onClick: onAddBulkTag }, t('addTag')),
+            h(
+              'button',
+              { type: 'button', className: 'dsh-mb-btn dsh-mb-btn--small', disabled: state.mutating, onClick: onAddBulkTag },
+              h(IconPlus, { size: 11 }),
+              t('addTag'),
+            ),
           ),
           bulkConfirmRemove
             ? h(
@@ -4044,7 +4094,7 @@ window.__ModuleLoader__.load({
                   'button',
                   {
                     type: 'button',
-                    className: 'dsh-mb-btn dsh-mb-btn--danger',
+                    className: 'dsh-mb-btn dsh-mb-btn--small dsh-mb-btn--danger',
                     autoFocus: true,
                     disabled: state.mutating,
                     onClick: () => {
@@ -4055,7 +4105,7 @@ window.__ModuleLoader__.load({
                 ),
                 h(
                   'button',
-                  { type: 'button', className: 'dsh-mb-btn', onClick: () => setBulkConfirmRemove(false) },
+                  { type: 'button', className: 'dsh-mb-btn dsh-mb-btn--small', onClick: () => setBulkConfirmRemove(false) },
                   t('cancel'),
                 ),
               )
@@ -4063,19 +4113,19 @@ window.__ModuleLoader__.load({
                 'button',
                 {
                   type: 'button',
-                  className: 'dsh-mb-btn dsh-mb-btn--danger',
+                  className: 'dsh-mb-bulk-btn dsh-mb-bulk-btn--danger',
                   disabled: state.mutating,
                   'aria-label': t('bulkRemoveLabel'),
                   title: t('bulkRemoveLabel'),
                   onClick: () => setBulkConfirmRemove(true),
                 },
-                t('remove'),
+                h(IconTrash, { size: 14 }),
               ),
           h(
             'button',
             {
               type: 'button',
-              className: 'dsh-mb-btn',
+              className: 'dsh-mb-bulk-btn',
               disabled: state.mutating,
               'aria-label': t('bulkInvertLabel'),
               title: t('bulkInvertLabel'),
@@ -4083,9 +4133,19 @@ window.__ModuleLoader__.load({
                 setStatus(msg('selectionInverted', { count: invertSelectedImages(filtered.map((image) => image.id)) }))
               },
             },
-            t('invert'),
+            h(IconSwap, { size: 14 }),
           ),
-          h('button', { type: 'button', className: 'dsh-mb-btn', onClick: onClearSelection }, t('clearSelection')),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-mb-bulk-btn',
+              'aria-label': t('clearSelection'),
+              title: t('clearSelection'),
+              onClick: onClearSelection,
+            },
+            h(IconClose, { size: 13 }),
+          ),
           bulkConfirmRemove
             ? h(
                 'p',
@@ -4096,7 +4156,7 @@ window.__ModuleLoader__.load({
           bulkTagError !== ''
             ? h('p', { className: 'dsh-mb-bulk-error', id: 'dsh-mb-bulk-tag-error', role: 'alert' }, bulkTagError)
             : null,
-          h('p', { className: 'dsh-mb-hint dsh-mb-bulk-hint' }, t('selectionHint')),
+          h('p', { className: 'dsh-mb-bulk-hint' }, t('selectionHint')),
         )
       }
 
@@ -4195,12 +4255,13 @@ window.__ModuleLoader__.load({
             : null,
           h(
             'div',
-            { className: 'dsh-mb-card-actions' },
+            { className: 'dsh-mb-card-actions', 'aria-hidden': 'true' },
             h(
               'button',
               {
                 type: 'button',
                 className: 'dsh-mb-btn dsh-mb-btn--icon',
+                tabIndex: -1,
                 title: t('lightboxOpenLabel', { name: image.name }),
                 'aria-label': t('lightboxOpenLabel', { name: image.name }),
                 'aria-haspopup': 'dialog',
@@ -4217,6 +4278,7 @@ window.__ModuleLoader__.load({
               {
                 type: 'button',
                 className: 'dsh-mb-btn dsh-mb-btn--icon',
+                tabIndex: -1,
                 title: t(image.pinned ? 'unpinName' : 'pinName', { name: image.name }),
                 'aria-label': t(image.pinned ? 'unpinName' : 'pinName', { name: image.name }),
                 disabled: state.mutating,
@@ -4231,6 +4293,7 @@ window.__ModuleLoader__.load({
               {
                 type: 'button',
                 className: 'dsh-mb-btn dsh-mb-btn--icon',
+                tabIndex: -1,
                 title: t('replaceLabel', { name: image.name }),
                 'aria-label': t('replaceLabel', { name: image.name }),
                 disabled: state.mutating,
@@ -4243,6 +4306,7 @@ window.__ModuleLoader__.load({
               {
                 type: 'button',
                 className: 'dsh-mb-btn dsh-mb-btn--icon dsh-mb-btn--danger',
+                tabIndex: -1,
                 title: t('removeName', { name: image.name }),
                 'aria-label': t('removeName', { name: image.name }),
                 disabled: state.mutating,
@@ -4425,12 +4489,12 @@ window.__ModuleLoader__.load({
                   type: 'button',
                   className: 'dsh-mb-btn dsh-mb-btn--small',
                   'aria-haspopup': 'dialog',
-                  title: t('manageTags'),
-                  'aria-label': t('manageTags'),
+                  title: t('tagMergeTitle'),
+                  'aria-label': t('tagMergeTitle'),
                   onClick: (event) => openTagManager(event.currentTarget),
                 },
                 h(IconTag, { size: 12 }),
-                h('span', { className: 'dsh-mb-btn-text' }, t('manageTags')),
+                h('span', { className: 'dsh-mb-btn-text' }, t('tagMergeTitle')),
               ),
             ),
           ),
@@ -4542,6 +4606,7 @@ window.__ModuleLoader__.load({
         if (lightboxImage === null) return null
         const headingId = 'dsh-mb-lightbox-title'
         const multi = lightboxList.length > 1
+        const position = lightboxList.findIndex((entry) => entry.id === lightboxImage.id)
         return h(
           'div',
           {
@@ -4568,6 +4633,42 @@ window.__ModuleLoader__.load({
                 { id: headingId, className: 'dsh-mb-lightbox-title' },
                 h('span', { className: 'dsh-mb-visually-hidden' }, `${t('lightboxTitle')} `),
                 lightboxImage.name,
+                multi ? h('span', { className: 'dsh-mb-lightbox-counter' }, `${position + 1} / ${lightboxList.length}`) : null,
+              ),
+              h(
+                'div',
+                { className: 'dsh-mb-lightbox-actions' },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dsh-mb-btn dsh-mb-btn--small',
+                    disabled: state.mutating,
+                    title: t('editDetails'),
+                    onClick: () => {
+                      selectSingleImage(lightboxImage.id)
+                      closeLightbox()
+                    },
+                  },
+                  h(IconPencil, { size: 12 }),
+                  h('span', { className: 'dsh-mb-btn-text' }, t('editDetails')),
+                ),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dsh-mb-btn dsh-mb-btn--small',
+                    disabled: state.mutating,
+                    title: t(lightboxImage.pinned ? 'unpinName' : 'pinName', { name: lightboxImage.name }),
+                    'aria-label': t(lightboxImage.pinned ? 'unpinName' : 'pinName', { name: lightboxImage.name }),
+                    'aria-pressed': lightboxImage.pinned ? 'true' : 'false',
+                    onClick: () => {
+                      void setPinned(lightboxImage, !lightboxImage.pinned)
+                    },
+                  },
+                  lightboxImage.pinned ? h(IconPinOff, { size: 12 }) : h(IconPin, { size: 12 }),
+                  h('span', { className: 'dsh-mb-btn-text' }, lightboxImage.pinned ? t('unpin') : t('pin')),
+                ),
               ),
               h(
                 'button',
@@ -4579,7 +4680,7 @@ window.__ModuleLoader__.load({
                   title: t('lightboxClose'),
                   onClick: closeLightbox,
                 },
-                h(IconClose, { size: 12 }),
+                h(IconClose, { size: 13 }),
               ),
             ),
             h(
@@ -4595,7 +4696,7 @@ window.__ModuleLoader__.load({
                   disabled: !multi,
                   onClick: () => stepLightbox(-1),
                 },
-                h(IconChevron, { size: 12, direction: 'left' }),
+                h(IconChevron, { size: 16, direction: 'left' }),
               ),
               lightboxUrl === ''
                 ? h(
@@ -4619,7 +4720,7 @@ window.__ModuleLoader__.load({
                   disabled: !multi,
                   onClick: () => stepLightbox(1),
                 },
-                h(IconChevron, { size: 12, direction: 'right' }),
+                h(IconChevron, { size: 16, direction: 'right' }),
               ),
             ),
             h(
@@ -4663,6 +4764,7 @@ window.__ModuleLoader__.load({
                     ),
                   ),
             ),
+            h('p', { className: 'dsh-mb-lightbox-hint' }, t('lightboxHint')),
           ),
         )
       }
@@ -4776,7 +4878,7 @@ window.__ModuleLoader__.load({
             {
               type: 'button',
               className: 'dsh-mb-btn',
-              disabled: copying,
+              disabled: copying || images.length === 0,
               'aria-label': t('copyBrief'),
               title: t('copyBrief'),
               onClick: onCopyBrief,
@@ -4901,8 +5003,8 @@ window.__ModuleLoader__.load({
         selectedImage === null
           ? null
           : h(
-              'aside',
-              { className: 'dsh-mb-side', 'aria-label': t('details') },
+              'div',
+              { className: 'dsh-mb-side', role: 'region', 'aria-label': t('details') },
               pendingBar,
               h(MetadataPanel, {
                 key: selectedImage.id,
@@ -4929,6 +5031,7 @@ window.__ModuleLoader__.load({
         {
           className: 'dsh-mb-page',
           'data-drag': dragActive ? 'true' : 'false',
+          'data-bulk': state.selectedIds.length > 1 ? 'true' : 'false',
           'aria-label': t('panel'),
           'aria-busy': state.mutating || state.uploading ? 'true' : undefined,
           onDragEnter,
@@ -5018,20 +5121,7 @@ window.__ModuleLoader__.load({
             title,
             disabled,
             style: {
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              height: 28,
-              padding: '0 10px',
-              borderRadius: 999,
-              border: '1px solid var(--dsw-alias-border-l1)',
-              background: 'transparent',
-              color: 'var(--dsw-alias-label-secondary)',
-              font: 'inherit',
-              fontSize: 12,
-              lineHeight: 1,
               cursor: disabled ? 'default' : 'pointer',
-              whiteSpace: 'nowrap',
             },
             onClick: (event) => {
               const handled = insertReferenceDirective(props.inputActions, draft, pinnedCount, t)
