@@ -1,5 +1,7 @@
 # dsh-moodboard
 
+[English](./README.md) · [中文](./README.zh-CN.md)
+
 [![npm version](https://img.shields.io/npm/v/dsh-moodboard.svg)](https://www.npmjs.com/package/dsh-moodboard)
 [![provenance: signed](https://img.shields.io/badge/provenance-signed-brightgreen)](https://www.npmjs.com/package/dsh-moodboard)
 [![test](https://github.com/Stijnus/dsh-moodboard/actions/workflows/test.yml/badge.svg)](https://github.com/Stijnus/dsh-moodboard/actions/workflows/test.yml)
@@ -12,6 +14,18 @@ define your app's visual language, and let the agent read that style guide
 before it generates or restyles UI.
 
 ![A moodboard panel with an active style-guide hero, filterable gallery and image inspector](https://raw.githubusercontent.com/Stijnus/dsh-moodboard/main/docs/panel.png)
+
+## Quick start
+
+```sh
+dsh plugin --profile web add dsh-moodboard
+```
+
+Restart the Harness (or refresh the Web UI). It adds a **Moodboard** entry to the sidebar.
+
+<sub>More from this suite: [Moodboard](https://github.com/Stijnus/dsh-moodboard) · [Composer Predictions](https://github.com/Stijnus/dsh-composer-predictions) · [Move to Workspace](https://github.com/Stijnus/dsh-move-to-workspace) · [Workspace Status](https://github.com/Stijnus/dsh-workspace-status) · [Prompt Rewrite](https://github.com/Stijnus/dsh-prompt-optimizer)</sub>
+
+<sub>⭐ If this saves you a step, a star helps the next DSH user find it.</sub>
 
 ## What you get
 
