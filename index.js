@@ -472,7 +472,7 @@ async function dispatch(store, ctx, request, response, method, segments, url) {
   if (segments[0] === 'image') {
     if (segments.length !== 2) throw httpError('not-found', 'no such moodboard endpoint')
     if (method !== 'GET') throw httpError('method-not-allowed', 'this endpoint supports GET only')
-    return handleImageBytes(store, ctx, response, decodeSegment(segments[1]))
+    return handleImageBytes(store, ctx, response, decodeSegment(segments[1]), url.searchParams.get('v'))
   }
 
   if (segments[0] !== 'api') throw httpError('not-found', 'no such moodboard endpoint')
@@ -758,10 +758,12 @@ async function handleMergeTags(store, request, response) {
 }
 
 /** `GET /image/<id>` — raw normalized bytes with immutable caching. */
-async function handleImageBytes(store, ctx, response, id) {
+async function handleImageBytes(store, ctx, response, id, version) {
   await store.ready()
   const image = store.current().images.find((entry) => entry.id === id)
   if (image === undefined) throw httpError('not-found', `no moodboard image has id "${id}"`)
+
+  if (version !== null && version !== image.attachment.attachmentId) throw httpError('not-found', 'this image revision is no longer on the board')
 
   let data
   try {
@@ -777,7 +779,7 @@ async function handleImageBytes(store, ctx, response, id) {
   if (!(data instanceof Uint8Array) || data.byteLength === 0) {
     throw httpError('storage-failed', 'the stored image bytes could not be read')
   }
-  sendImageBytes(response, data, image.attachment.mediaType)
+  sendImageBytes(response, data, image.attachment.mediaType, version !== null)
 }
 
 /** Store one validated upload through the attachment service. */
@@ -1222,7 +1224,7 @@ function imageView(image) {
     bytes: attachment.bytes,
     width: attachment.width,
     height: attachment.height,
-    imageUrl: `${PREFIX}/image/${image.id}`,
+    imageUrl: `${PREFIX}/image/${image.id}?v=${encodeURIComponent(attachment.attachmentId)}`,
   }
 }
 
@@ -1298,7 +1300,7 @@ function briefLine(image, index) {
   const parts = [`tags: ${image.tags.length > 0 ? image.tags.join(', ') : 'none'}`]
   if (image.notes !== '') parts.push(`notes: ${collapseWhitespace(image.notes)}`)
   if (image.sourceUrl !== '') parts.push(`source: ${image.sourceUrl}`)
-  return clipText(`${index + 1}. ${image.name} — ${parts.join('; ')}`, MAX_BRIEF_LINE_CHARS)
+  return clipText(`${index + 1}. [${image.id}] ${image.name} — ${parts.join('; ')}`, MAX_BRIEF_LINE_CHARS)
 }
 
 /** Clip a string to a maximum length, appending an ellipsis when cut. */
@@ -1423,7 +1425,7 @@ function createMoodboardTool(store) {
   return {
     name: 'moodboard',
     description:
-      "The user's moodboard of visual reference images. Returns the active style guide (pinned images, or the whole board when none are pinned) with names, tags, notes and the reference images themselves. Use `active` before generating or changing app UI and match the references' typography, color palette, spacing, radius, iconography and component styling exactly. `query` filters by tags, `get` returns one image by id, `list` returns every image's metadata as text, and `brief` returns only the text style brief.",
+      "The user's moodboard of visual reference images. Returns the active style guide (pinned images, or the whole board when none are pinned) with names, tags, notes and the reference images themselves. Use `active` before generating or changing app UI and match the references' typography, color palette, spacing, radius, iconography and component styling exactly. `query` filters by tags, `get` returns one image by id with complete notes, tags and source URL, `list` returns every image's metadata as text, and `brief` returns only the text style brief.",
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -1525,7 +1527,7 @@ async function executeMoodboard(store, rawArgs) {
     return {
       ok: true,
       action,
-      brief: buildBrief([image], 'get', 1),
+      brief: `Moodboard reference ${image.id}: ${image.name}\nTags: ${image.tags.join(', ') || 'none'}\nNotes:\n${image.notes}\nSource: ${image.sourceUrl}`,
       images: [toolImage(image)],
       total: 1,
       fallback: false,
@@ -1611,7 +1613,10 @@ function renderToolContent(args, value) {
 
   if (value.action === 'list') return [{ type: 'text', text: renderListText(value) }]
 
-  const blocks = [{ type: 'text', text: value.brief }]
+  const text = value.action === 'active' || value.action === 'query'
+    ? `${value.brief}\nUse action="get" with a reference id for complete notes and source; this overview is abbreviated. Use action="list" for all reference ids.`
+    : value.brief
+  const blocks = [{ type: 'text', text }]
   if (wantsImageBlocks(args, value.action)) {
     const selected = value.images.slice(0, MAX_TOOL_IMAGE_BLOCKS)
     for (const image of selected) blocks.push({ type: 'image', attachment: attachmentValue(image.attachment) })
@@ -1670,12 +1675,12 @@ function sendJsonError(response, code, message) {
 }
 
 /** Write raw normalized image bytes with immutable caching. */
-function sendImageBytes(response, data, mediaType) {
+function sendImageBytes(response, data, mediaType, versioned) {
   if (response.writableEnded === true || response.headersSent === true) return
   response.writeHead(200, {
     'content-type': mediaType,
     'content-length': String(data.byteLength),
-    'cache-control': 'private, max-age=31536000, immutable',
+    'cache-control': versioned ? 'private, max-age=31536000, immutable' : 'no-store',
     'x-content-type-options': 'nosniff',
   })
   response.end(data)

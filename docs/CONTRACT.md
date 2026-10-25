@@ -257,12 +257,16 @@ Codes: `unauthorized` (401), `forbidden` (403), `not-found` (404),
   `Buffer.from(data, 'base64')`. Reject base64 whose decoded length is 0 or
   whose encoded string exceeds **32 MB** (`image-too-large`).
 - `mediaType` must be one of the four image media types.
+- Image URLs include the URL-encoded attachment id as `v`. Versioned requests
+  must match the current attachment or return 404; only matching versioned
+  responses are immutable. Unversioned requests return current bytes with
+  `cache-control: no-store`.
 - `GET /api/active`: pinned images if any, otherwise **all** images with
   `fallback: true`.
 - `brief`: short plain-text style brief, e.g.
   `Active moodboard style guide (2 pinned references):\n1. name — tags: a, b; notes: …; source: …`
-  Keep each line ≤ 400 chars; include only pinned/all names, tags, notes and
-  sources. No HTML.
+  Keep overview lines ≤ 400 chars, including reference IDs, names, tags, notes
+  and sources. `get` returns full metadata. No HTML.
 - `POST /api/images/reorder` requires every board image id exactly once; it
   rewrites `order` to the array position and returns `{ ok: true }`.
 - `POST /api/images/bulk` requires at least one operation; unknown ids return
@@ -274,7 +278,7 @@ Codes: `unauthorized` (401), `forbidden` (403), `not-found` (404),
 - `BoardView`: `{ version, updatedAt, images: ImageView[], allTags, tagCounts,
   pinned: [<id>…] }`.
 - `ImageView`: `{ id, name, tags, notes, sourceUrl, pinned, order, createdAt,
-  updatedAt, mediaType, bytes, width, height, imageUrl: "/moodboard/image/<id>" }`.
+  updatedAt, mediaType, bytes, width, height, imageUrl: "/moodboard/image/<id>?v=<attachmentId>" }`.
 
 ## Agent tool (Host)
 
@@ -295,7 +299,7 @@ Behaviour:
   insensitive; unknown tag → empty list (not an error).
 - `list` → every image metadata, text only (no image blocks).
 - `brief` → text brief only.
-- `get` → one image by id (404-like miss returns `{ ok: false, error }` as a
+- `get` → one image by id with complete notes, tags and source URL (404-like miss returns `{ ok: false, error }` as a
   tool value with `isError`-free content text "not found").
 - `includeImages` false suppresses image blocks.
 - Cap image content blocks to **6** per call (`active`/`query`): the
@@ -359,8 +363,9 @@ Behaviour:
   activation and after every mutation; optimistic updates are optional but the
   store must reconcile with server responses.
 - Images: fetch `imageUrl` as a blob (`fetch(url, { credentials: 'same-origin' })`),
-  cache the object URL per `id + updatedAt` in a module Map, revoke on plugin
-  disposal. Render `<img alt={name}>`. Thumbnails can be CSS-sized (no
+  cache the object URL per `id + imageUrl` in a module Map. Revoke obsolete
+  revisions on board refresh and all remaining URLs on plugin disposal; discard
+  in-flight results for images no longer on the board. Render `<img alt={name}>`. Thumbnails can be CSS-sized (no
   server-side thumbnail route).
 - Client-side downscale before upload: draw the file onto a canvas with max
   edge 1600 px, export as `image/webp` quality 0.85 (fallback `image/jpeg`

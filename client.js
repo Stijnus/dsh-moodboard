@@ -759,7 +759,7 @@ window.__ModuleLoader__.load({
     }
 
     function imageKey(image) {
-      return `${image.id}|${image.updatedAt}|${image.imageUrl}`
+      return `${image.id}|${image.imageUrl}`
     }
 
     // ---------------------------------------------------------------------------
@@ -768,6 +768,7 @@ window.__ModuleLoader__.load({
 
     const imageUrlCache = new Map()
     const imageUrlInflight = new Map()
+    let liveImageKeys = new Set()
     let disposed = false
     /** Card to focus after a keyboard reorder refresh re-renders the gallery. */
     let pendingCardFocusId = null
@@ -783,7 +784,7 @@ window.__ModuleLoader__.load({
           if (!response.ok) throw createError(`HTTP ${response.status}`, 'image-load')
           const blob = await response.blob()
           const objectUrl = URL.createObjectURL(blob)
-          if (disposed) {
+          if (disposed || !liveImageKeys.has(key)) {
             URL.revokeObjectURL(objectUrl)
             throw createError('disposed', 'image-load')
           }
@@ -825,6 +826,7 @@ window.__ModuleLoader__.load({
           return undefined
         }
         let cancelled = false
+        setUrl('')
         loadImageUrl(key, image.imageUrl)
           .then((objectUrl) => {
             if (!cancelled) setUrl(objectUrl)
@@ -986,6 +988,12 @@ window.__ModuleLoader__.load({
 
     function applyBoard(rawBoard) {
       const board = normalizeBoard(rawBoard)
+      liveImageKeys = new Set(board.images.map(imageKey))
+      for (const [key, objectUrl] of imageUrlCache) {
+        if (liveImageKeys.has(key)) continue
+        URL.revokeObjectURL(objectUrl)
+        imageUrlCache.delete(key)
+      }
       const current = snapshot.selectedId
       const stillPresent = current !== null && board.images.some((image) => image.id === current)
       const filter = snapshot.tagFilter
@@ -2327,23 +2335,26 @@ window.__ModuleLoader__.load({
       const [clipboardReady, setClipboardReady] = useState(() => metadataClipboard !== null)
       const [metaStatus, setMetaStatus] = useState('')
       const replaceInputRef = useRef(null)
+      const savedImageRef = useRef(image)
       const dirtyRef = useRef(false)
       const savingRef = useRef(false)
       const savedTimer = useRef(null)
       const metaStatusTimer = useRef(null)
 
+      const savedImage = savedImageRef.current
       const dirty =
-        name !== image.name ||
-        notes !== image.notes ||
-        sourceUrl !== image.sourceUrl ||
-        pinned !== image.pinned ||
-        tags.length !== image.tags.length ||
-        tags.some((tag, index) => tag !== image.tags[index])
+        name !== savedImage.name ||
+        notes !== savedImage.notes ||
+        sourceUrl !== savedImage.sourceUrl ||
+        pinned !== savedImage.pinned ||
+        tags.length !== savedImage.tags.length ||
+        tags.some((tag, index) => tag !== savedImage.tags[index])
 
       dirtyRef.current = dirty
       savingRef.current = saving
 
       function loadFromImage(next) {
+        savedImageRef.current = next
         setName(next.name)
         setTags(next.tags)
         setNotes(next.notes)
@@ -4870,6 +4881,7 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
+        disposed = false
         ctx.effect(() => ctx.locale.register(NS, DICTIONARIES))
         const t = ctx.locale.bind(NS)
         activeTranslate = t

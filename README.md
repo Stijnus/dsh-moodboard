@@ -112,11 +112,12 @@ The current build contract for the Host and Client halves is
 | `active` (default) | pinned style guide, or the whole board when nothing is pinned. Returns metadata **and** the images themselves. |
 | `query` | filter by tag(s): `tags: ["dark","typography"]`, `match: "any" \| "all"`. Returns matching images. |
 | `list` | metadata for every image, no image bytes (cheap overview). |
-| `get` | one image by `id`. |
+| `get` | one image by `id`, with complete notes, tags and source URL. |
 | `brief` | text-only style brief (names, tags, notes, sources). |
 
 `includeImages: false` suppresses image content blocks. Image content is capped
-at 6 per call.
+at 6 per call. `active` and `query` return abbreviated overviews with reference
+IDs; use `get` for complete metadata, or `list` to find all reference IDs.
 
 ### HTTP endpoints
 
@@ -137,7 +138,7 @@ the tool; these endpoints exist for the panel and for programmatic reads:
 | `GET /moodboard/api/active` | active guide with tags/notes/sources/brief |
 | `GET /moodboard/api/query?tag=…&match=any` | tag lookup |
 | `GET /moodboard/api/health` | liveness + image count |
-| `GET /moodboard/image/<id>` | normalized image bytes |
+| `GET /moodboard/image/<id>?v=<attachmentId>` | normalized image bytes for that revision |
 
 All JSON responses use `{ ok: true, … }` or
 `{ ok: false, error: { code, message } }`.
