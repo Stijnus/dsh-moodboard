@@ -22,6 +22,9 @@ before it generates or restyles UI.
   Paste / Add images buttons. Every image is downscaled and stored durably.
 - **Organize**: drag cards to set the gallery order, Shift/Cmd-click to select
   several, then pin, unpin, tag or remove them in one action.
+- **Find & inspect**: search by name, tags, notes or source (combinable with
+  the tag filter), and open any reference in a full-size lightbox with
+  previous/next navigation and keyboard support.
 - **Per-image metadata**: tags, notes, source URL, name — editable in a
   metadata panel, with pin / replace / remove actions.
 - **Active style guide**: pin one or more references. The agent treats pinned

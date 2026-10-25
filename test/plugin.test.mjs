@@ -107,3 +107,19 @@ test('0.2 reorder/bulk endpoints and client interactions are wired', async () =>
     assert.ok(client.includes(anchor), `client source must reference ${anchor}`)
   }
 })
+
+test('0.2.1 search and lightbox are wired', async () => {
+  const client = await read('client.js')
+  for (const anchor of [
+    'searchQuery',
+    'matchesSearch',
+    'searchPlaceholder',
+    'lightboxId',
+    'lightboxOpenLabel',
+    "role: 'dialog'",
+    'aria-modal',
+    'dsh-mb-lightbox',
+  ]) {
+    assert.ok(client.includes(anchor), `client source must reference ${anchor}`)
+  }
+})

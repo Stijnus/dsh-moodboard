@@ -39,6 +39,8 @@ window.__ModuleLoader__.load({
     const MAX_SOURCE_URL_LENGTH = 2000
     const MAX_ERROR_CHARS = 320
     const DRAG_ID_TYPE = 'application/x-moodboard-id'
+    const LIGHTBOX_FOCUSABLE =
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
     // ---------------------------------------------------------------------------
     // Locale dictionaries (every visible string is addressed through these)
@@ -102,8 +104,14 @@ window.__ModuleLoader__.load({
         allTags: 'All',
         tagChip: '{tag} ({count})',
         noMatches: 'No images have this tag yet.',
+        searchLabel: 'Search the gallery',
+        searchPlaceholder: 'Search name, tags, notes, source…',
+        searchClear: 'Clear search',
+        searchResults: 'Showing {shown} of {total}',
+        searchNoMatches: 'No images match your search.',
         reorderHint: 'Drag a card to reorder the gallery.',
         reorderFilteredHint: 'Clear the tag filter to reorder the gallery.',
+        reorderSearchHint: 'Clear the search to reorder the gallery.',
         reorderDone: 'Gallery order saved',
         reorderFailed: 'Could not reorder the gallery: {message}',
 
@@ -122,6 +130,14 @@ window.__ModuleLoader__.load({
         previewAlt: 'Preview of {name}',
         openSource: 'Open source link',
         closeDetails: 'Close details',
+        lightboxTitle: 'Image preview',
+        lightboxOpenLabel: 'Expand {name}',
+        lightboxClose: 'Close preview',
+        lightboxPrev: 'Previous image',
+        lightboxNext: 'Next image',
+        lightboxTags: 'Tags',
+        lightboxNotes: 'Notes',
+        lightboxSource: 'Source',
 
         name: 'Name',
         namePlaceholder: 'Image name',
@@ -249,8 +265,14 @@ window.__ModuleLoader__.load({
         allTags: '全部',
         tagChip: '{tag}（{count}）',
         noMatches: '还没有图片使用这个标签。',
+        searchLabel: '搜索图片库',
+        searchPlaceholder: '搜索名称、标签、备注、来源…',
+        searchClear: '清除搜索',
+        searchResults: '显示 {shown} / {total} 张',
+        searchNoMatches: '没有与搜索匹配的图片。',
         reorderHint: '拖动卡片即可调整图片库顺序。',
         reorderFilteredHint: '清除标签筛选后即可调整图片库顺序。',
+        reorderSearchHint: '清除搜索后即可调整图片库顺序。',
         reorderDone: '已保存图片库顺序',
         reorderFailed: '无法调整图片库顺序：{message}',
 
@@ -268,6 +290,14 @@ window.__ModuleLoader__.load({
         previewAlt: '{name} 的预览',
         openSource: '打开来源链接',
         closeDetails: '关闭详情',
+        lightboxTitle: '图片预览',
+        lightboxOpenLabel: '放大查看 {name}',
+        lightboxClose: '关闭预览',
+        lightboxPrev: '上一张图片',
+        lightboxNext: '下一张图片',
+        lightboxTags: '标签',
+        lightboxNotes: '备注',
+        lightboxSource: '来源',
 
         name: '名称',
         namePlaceholder: '图片名称',
@@ -533,6 +563,19 @@ window.__ModuleLoader__.load({
       })
     }
 
+    /**
+     * Case-insensitive substring match over every user-visible field of an
+     * image. `needle` is expected to be already trimmed and lower-cased.
+     */
+    function matchesSearch(image, needle) {
+      if (needle === '') return true
+      const haystack = [image.name, image.tags.join(' '), image.notes, image.sourceUrl, image.id]
+      for (const value of haystack) {
+        if (String(value).toLowerCase().indexOf(needle) !== -1) return true
+      }
+      return false
+    }
+
     function normalizeImage(raw) {
       if (raw === null || typeof raw !== 'object') return null
       const id = typeof raw.id === 'string' && raw.id !== '' ? raw.id : ''
@@ -748,6 +791,7 @@ window.__ModuleLoader__.load({
         selectedIds: [],
         selectionAnchorId: null,
         tagFilter: '',
+        searchQuery: '',
         uploads: [],
         editorDirty: false,
         // `undefined` means "no pending selection"; `null` is a real target
@@ -849,6 +893,21 @@ window.__ModuleLoader__.load({
 
     function setTagFilter(tag) {
       setState({ tagFilter: typeof tag === 'string' ? tag : '' })
+    }
+
+    /**
+     * Keep the raw text (so multi-word queries can be typed) and trim it when
+     * matching: a whitespace-only query counts as empty everywhere.
+     */
+    function setSearchQuery(value) {
+      const next = typeof value === 'string' ? value : ''
+      if (snapshot.searchQuery === next) return
+      setState({ searchQuery: next })
+    }
+
+    function clearSearch() {
+      if (snapshot.searchQuery === '') return
+      setState({ searchQuery: '' })
     }
 
     // ---- multi-select ---------------------------------------------------------
@@ -1494,6 +1553,32 @@ window.__ModuleLoader__.load({
 .dsh-mb-card[data-drop='after'] { box-shadow: inset -3px 0 0 var(--dsw-alias-brand-primary); }
 @media (hover: none) { .dsh-mb-card-actions { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .dsh-mb-card-actions, .dsh-mb-switch-track, .dsh-mb-switch-knob { transition: none; } }
+.dsh-mb-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.dsh-mb-search { position: relative; display: flex; align-items: center; flex: 1 1 200px; max-width: 300px; min-width: 0; }
+.dsh-mb-search-input { height: 28px; padding-right: 28px; font-size: 12px; }
+.dsh-mb-search-input::-webkit-search-cancel-button, .dsh-mb-search-input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
+.dsh-mb-search-clear { position: absolute; right: 3px; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; }
+.dsh-mb-search-clear:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.dsh-mb-lightbox { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--dsw-alias-bg-overlay); }
+.dsh-mb-lightbox-dialog { position: relative; display: flex; flex-direction: column; width: min(920px, 100%); max-height: 100%; min-height: 0; overflow: hidden; border: 1px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); }
+.dsh-mb-lightbox-head { display: flex; align-items: center; gap: 8px; flex: none; padding: 8px 10px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
+.dsh-mb-lightbox-title { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 500; line-height: 22px; }
+.dsh-mb-lightbox-figure { position: relative; display: flex; flex: 1 1 auto; align-items: center; justify-content: center; min-height: 0; padding: 10px 46px; background: var(--dsw-alias-bg-layer-2); }
+.dsh-mb-lightbox-image { display: block; max-width: 100%; max-height: min(60vh, 560px); object-fit: contain; }
+.dsh-mb-lightbox-figure .dsh-mb-thumb-placeholder { height: 200px; }
+.dsh-mb-lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); background: var(--dsw-alias-bg-overlay); }
+.dsh-mb-lightbox-nav:hover:not(:disabled) { background: var(--dsw-alias-bg-layer-1); }
+.dsh-mb-lightbox-prev { left: 8px; }
+.dsh-mb-lightbox-next { right: 8px; }
+.dsh-mb-lightbox-body { display: flex; flex-direction: column; gap: 8px; flex: none; max-height: 34%; overflow-y: auto; padding: 10px 12px 14px; border-top: 1px solid var(--dsw-alias-border-l1); }
+.dsh-mb-lightbox-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dsh-mb-lightbox-notes { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+@media (max-width: 640px) {
+  .dsh-mb-lightbox { padding: 0; }
+  .dsh-mb-lightbox-dialog { width: 100%; height: 100%; max-height: 100%; border: 0; border-radius: 0; }
+  .dsh-mb-lightbox-image { max-height: 52vh; }
+  .dsh-mb-lightbox-body { max-height: 38%; }
+}
 `
 
     const REFERENCE_CSS = `
@@ -1593,6 +1678,39 @@ window.__ModuleLoader__.load({
         h('rect', { x: 2.5, y: 3.5, width: 15, height: 13, rx: 2 }),
         h('circle', { cx: 7, cy: 8, r: 1.3 }),
         h('path', { d: 'M3.5 14l4.2-4 3 2.8 2.6-2.4 3.2 3.6' }),
+      )
+    }
+
+    function IconChevron(props) {
+      const size = typeof props.size === 'number' ? props.size : 12
+      const right = props.direction === 'right'
+      return h(
+        'svg',
+        { width: size, height: size, viewBox: '0 0 12 12', 'aria-hidden': 'true', focusable: 'false' },
+        h('path', {
+          d: right ? 'M4.5 2.5L8 6l-3.5 3.5' : 'M7.5 2.5L4 6l3.5 3.5',
+          stroke: 'currentColor',
+          strokeWidth: 1.5,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+          fill: 'none',
+        }),
+      )
+    }
+
+    function IconExpand(props) {
+      const size = typeof props.size === 'number' ? props.size : 12
+      return h(
+        'svg',
+        { width: size, height: size, viewBox: '0 0 12 12', 'aria-hidden': 'true', focusable: 'false' },
+        h('path', {
+          d: 'M7 1.5h3.5V5M5 10.5H1.5V7M10.25 1.75L7 5M1.75 10.25L5 7',
+          stroke: 'currentColor',
+          strokeWidth: 1.4,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+          fill: 'none',
+        }),
       )
     }
 
@@ -2003,11 +2121,18 @@ window.__ModuleLoader__.load({
       const [bulkTag, setBulkTag] = useState('')
       const [bulkTagError, setBulkTagError] = useState('')
       const [bulkConfirmRemove, setBulkConfirmRemove] = useState(false)
+      const [lightboxId, setLightboxId] = useState(null)
       const dragDepth = useRef(0)
       const fileInputRef = useRef(null)
       const replaceInputRef = useRef(null)
       const replaceTargetRef = useRef(null)
       const discardRef = useRef(null)
+      const searchInputRef = useRef(null)
+      const lightboxDialogRef = useRef(null)
+      const lightboxCloseRef = useRef(null)
+      const lightboxOpenerRef = useRef(null)
+      const lightboxIdRef = useRef(null)
+      const clickSelectionRef = useRef(null)
 
       useEffect(() => {
         ensureLoaded()
@@ -2030,6 +2155,8 @@ window.__ModuleLoader__.load({
         const onKeyDown = (event) => {
           if (event === null || event === undefined || event.key !== 'Escape') return
           if (event.defaultPrevented) return
+          // The lightbox owns Esc while it is open (its own handler closes it).
+          if (lightboxIdRef.current !== null) return
           if (isEditableTarget(event.target)) return
           const current = getSnapshot()
           if (current.pendingSelectId !== undefined) {
@@ -2071,12 +2198,25 @@ window.__ModuleLoader__.load({
       const pinnedImages = images.filter((image) => image.pinned)
       const selectedImage =
         state.selectedId === null ? null : images.find((image) => image.id === state.selectedId) || null
-      const filtered =
-        state.tagFilter === ''
-          ? images
-          : images.filter((image) =>
-              image.tags.some((tag) => tag.toLowerCase() === state.tagFilter.toLowerCase()),
-            )
+      // Search is trimmed and lower-cased only for matching; the raw text stays
+      // in the store so multi-word queries can be typed.
+      const searchNeedle = state.searchQuery.trim().toLowerCase()
+      const filtered = images.filter((image) => {
+        if (state.tagFilter !== '' && !image.tags.some((tag) => tag.toLowerCase() === state.tagFilter.toLowerCase())) {
+          return false
+        }
+        return matchesSearch(image, searchNeedle)
+      })
+      const lightboxImage = lightboxId === null ? null : images.find((image) => image.id === lightboxId) || null
+      const lightboxUrl = useImageUrl(lightboxImage)
+      // Navigate the visible order; an image hidden by a changed filter still
+      // falls back to the full gallery rather than trapping the lightbox.
+      const lightboxList =
+        lightboxImage === null
+          ? []
+          : filtered.some((entry) => entry.id === lightboxImage.id)
+            ? filtered
+            : images
 
       function hasFileDrag(event) {
         const transfer = event.dataTransfer
@@ -2109,8 +2249,100 @@ window.__ModuleLoader__.load({
       }
 
       // Manual order needs a stable, filter-free list: reordering while a tag
-      // filter hides cards would silently move unseen images.
-      const canReorder = state.tagFilter === '' && filtered.length === images.length && images.length > 1 && !state.mutating
+      // filter or search hides cards would silently move unseen images.
+      const canReorder =
+        state.tagFilter === '' &&
+        searchNeedle === '' &&
+        filtered.length === images.length &&
+        images.length > 1 &&
+        !state.mutating
+
+      // The lightbox is page-local and tracks only an id, so opening it keeps
+      // the multi-selection and the details target untouched.
+      useEffect(() => {
+        const wasOpen = lightboxIdRef.current !== null
+        lightboxIdRef.current = lightboxId
+        if (lightboxId !== null) {
+          if (wasOpen) return
+          const closeButton = lightboxCloseRef.current
+          if (closeButton !== null) closeButton.focus()
+          return
+        }
+        if (!wasOpen) return
+        const opener = lightboxOpenerRef.current
+        lightboxOpenerRef.current = null
+        if (opener !== null && opener.isConnected === true) opener.focus()
+      }, [lightboxId])
+
+      // A refresh, a removal or a bulk delete can make the open image vanish.
+      useEffect(() => {
+        if (lightboxId === null || state.board === null) return
+        if (!state.board.images.some((image) => image.id === lightboxId)) setLightboxId(null)
+      }, [state.board, lightboxId])
+
+      const openLightbox = (image, opener) => {
+        lightboxOpenerRef.current = opener === undefined || opener === null ? null : opener
+        setLightboxId(image.id)
+      }
+
+      const closeLightbox = () => {
+        setLightboxId(null)
+      }
+
+      // Prev/next walk the current tag + search filtered order and wrap.
+      const stepLightbox = (delta) => {
+        if (lightboxImage === null || lightboxList.length < 2) return
+        const index = lightboxList.findIndex((entry) => entry.id === lightboxImage.id)
+        if (index === -1) return
+        const nextIndex = (index + delta + lightboxList.length) % lightboxList.length
+        setLightboxId(lightboxList[nextIndex].id)
+      }
+
+      const onLightboxKeyDown = (event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          closeLightbox()
+          return
+        }
+        if (event.key === 'ArrowLeft') {
+          event.preventDefault()
+          event.stopPropagation()
+          stepLightbox(-1)
+          return
+        }
+        if (event.key === 'ArrowRight') {
+          event.preventDefault()
+          event.stopPropagation()
+          stepLightbox(1)
+          return
+        }
+        if (event.key !== 'Tab') return
+        const dialog = lightboxDialogRef.current
+        if (dialog === null) return
+        const focusable = []
+        dialog.querySelectorAll(LIGHTBOX_FOCUSABLE).forEach((node) => {
+          if (node.getClientRects().length > 0) focusable.push(node)
+        })
+        if (focusable.length === 0) {
+          event.preventDefault()
+          return
+        }
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        const active = document.activeElement
+        if (event.shiftKey) {
+          if (active === first || !dialog.contains(active)) {
+            event.preventDefault()
+            last.focus()
+          }
+          return
+        }
+        if (active === last || !dialog.contains(active)) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
 
       const onCardDragStart = (event, image) => {
         if (!canReorder) {
@@ -2482,7 +2714,36 @@ window.__ModuleLoader__.load({
               className: 'dsh-mb-thumb-btn',
               'aria-pressed': selected ? 'true' : 'false',
               'aria-label': t('selectImage', { name: image.name }),
-              onClick: (event) => onCardSelect(event, image),
+              onClick: (event) => {
+                // Remember the selection on the first click of a possible
+                // double-click so opening the lightbox can leave it untouched.
+                if (event.detail === 1) {
+                  const current = getSnapshot()
+                  clickSelectionRef.current = {
+                    selectedId: current.selectedId,
+                    selectedIds: current.selectedIds.slice(),
+                    selectionAnchorId: current.selectionAnchorId,
+                    pendingSelectId: current.pendingSelectId,
+                  }
+                }
+                onCardSelect(event, image)
+              },
+              onDoubleClick: (event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                const restore = clickSelectionRef.current
+                clickSelectionRef.current = null
+                if (restore !== null) {
+                  // Previewing must not select the card or open its details.
+                  setState({
+                    selectedId: restore.selectedId,
+                    selectedIds: restore.selectedIds,
+                    selectionAnchorId: restore.selectionAnchorId,
+                    pendingSelectId: restore.pendingSelectId,
+                  })
+                }
+                openLightbox(image, event.currentTarget)
+              },
             },
             h(Thumb, { image, alt: image.name }),
           ),
@@ -2492,6 +2753,22 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { className: 'dsh-mb-card-actions' },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-mb-btn dsh-mb-btn--icon',
+                title: t('lightboxOpenLabel', { name: image.name }),
+                'aria-label': t('lightboxOpenLabel', { name: image.name }),
+                'aria-haspopup': 'dialog',
+                onClick: (event) => {
+                  // Expanding previews the image without changing the selection.
+                  event.stopPropagation()
+                  openLightbox(image, event.currentTarget)
+                },
+              },
+              h(IconExpand, { size: 12 }),
+            ),
             h(
               'button',
               {
@@ -2631,6 +2908,12 @@ window.__ModuleLoader__.load({
               ),
         )
 
+      const onClearSearch = () => {
+        clearSearch()
+        const input = searchInputRef.current
+        if (input !== null) input.focus()
+      }
+
       const renderGallery = () =>
         h(
           'section',
@@ -2640,42 +2923,229 @@ window.__ModuleLoader__.load({
             { className: 'dsh-mb-section-head' },
             h('h2', { className: 'dsh-mb-section-title' }, t('gallery')),
             h('p', { className: 'dsh-mb-hint' }, imageCountText(t, images.length)),
+            searchNeedle === ''
+              ? null
+              : h(
+                  'p',
+                  { className: 'dsh-mb-hint', role: 'status' },
+                  t('searchResults', { shown: filtered.length, total: images.length }),
+                ),
             images.length > 1
-              ? h('p', { className: 'dsh-mb-hint' }, t(canReorder ? 'reorderHint' : 'reorderFilteredHint'))
+              ? h(
+                  'p',
+                  { className: 'dsh-mb-hint' },
+                  t(canReorder ? 'reorderHint' : searchNeedle === '' ? 'reorderFilteredHint' : 'reorderSearchHint'),
+                )
               : null,
           ),
           h(
             'div',
-            { className: 'dsh-mb-filters', role: 'group', 'aria-label': t('filterLabel') },
+            { className: 'dsh-mb-toolbar' },
             h(
-              'button',
-              {
-                type: 'button',
-                className: 'dsh-mb-chip',
-                'aria-pressed': state.tagFilter === '' ? 'true' : 'false',
-                onClick: () => setTagFilter(''),
-              },
-              h('span', null, t('allTags')),
-              h('span', null, String(images.length)),
+              'div',
+              { className: 'dsh-mb-search' },
+              h(
+                'label',
+                { className: 'dsh-mb-visually-hidden', htmlFor: 'dsh-mb-search-input' },
+                t('searchLabel'),
+              ),
+              h('input', {
+                ref: searchInputRef,
+                id: 'dsh-mb-search-input',
+                className: 'dsh-mb-input dsh-mb-search-input',
+                type: 'search',
+                value: state.searchQuery,
+                placeholder: t('searchPlaceholder'),
+                autoComplete: 'off',
+                spellCheck: false,
+                onChange: (event) => setSearchQuery(event.currentTarget.value),
+                onKeyDown: (event) => {
+                  if (event.key !== 'Escape') return
+                  event.preventDefault()
+                  event.stopPropagation()
+                  onClearSearch()
+                },
+              }),
+              state.searchQuery === ''
+                ? null
+                : h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'dsh-mb-search-clear',
+                      'aria-label': t('searchClear'),
+                      title: t('searchClear'),
+                      onClick: onClearSearch,
+                    },
+                    h(IconClose, { size: 10 }),
+                  ),
             ),
-            board.allTags.map((tag) =>
+            h(
+              'div',
+              { className: 'dsh-mb-filters', role: 'group', 'aria-label': t('filterLabel') },
               h(
                 'button',
                 {
-                  key: tag,
                   type: 'button',
                   className: 'dsh-mb-chip',
-                  'aria-pressed': state.tagFilter === tag ? 'true' : 'false',
-                  onClick: () => setTagFilter(state.tagFilter === tag ? '' : tag),
+                  'aria-pressed': state.tagFilter === '' ? 'true' : 'false',
+                  onClick: () => setTagFilter(''),
                 },
-                t('tagChip', { tag, count: countForTag(board, tag) }),
+                h('span', null, t('allTags')),
+                h('span', null, String(images.length)),
+              ),
+              board.allTags.map((tag) =>
+                h(
+                  'button',
+                  {
+                    key: tag,
+                    type: 'button',
+                    className: 'dsh-mb-chip',
+                    'aria-pressed': state.tagFilter === tag ? 'true' : 'false',
+                    onClick: () => setTagFilter(state.tagFilter === tag ? '' : tag),
+                  },
+                  t('tagChip', { tag, count: countForTag(board, tag) }),
+                ),
               ),
             ),
           ),
           filtered.length === 0
-            ? h('p', { className: 'dsh-mb-hint', role: 'status' }, t('noMatches'))
+            ? h(
+                'p',
+                { className: 'dsh-mb-hint', role: 'status' },
+                t(searchNeedle === '' ? 'noMatches' : 'searchNoMatches'),
+              )
             : h('ul', { className: 'dsh-mb-grid' }, filtered.map(renderCard)),
         )
+
+      const renderLightbox = () => {
+        if (lightboxImage === null) return null
+        const headingId = 'dsh-mb-lightbox-title'
+        const multi = lightboxList.length > 1
+        return h(
+          'div',
+          {
+            className: 'dsh-mb-lightbox',
+            onClick: (event) => {
+              if (event.target === event.currentTarget) closeLightbox()
+            },
+            onKeyDown: onLightboxKeyDown,
+          },
+          h(
+            'div',
+            {
+              ref: lightboxDialogRef,
+              className: 'dsh-mb-lightbox-dialog',
+              role: 'dialog',
+              'aria-modal': 'true',
+              'aria-labelledby': headingId,
+            },
+            h(
+              'div',
+              { className: 'dsh-mb-lightbox-head' },
+              h(
+                'h2',
+                { id: headingId, className: 'dsh-mb-lightbox-title' },
+                h('span', { className: 'dsh-mb-visually-hidden' }, `${t('lightboxTitle')} `),
+                lightboxImage.name,
+              ),
+              h(
+                'button',
+                {
+                  ref: lightboxCloseRef,
+                  type: 'button',
+                  className: 'dsh-mb-btn dsh-mb-btn--icon',
+                  'aria-label': t('lightboxClose'),
+                  title: t('lightboxClose'),
+                  onClick: closeLightbox,
+                },
+                h(IconClose, { size: 12 }),
+              ),
+            ),
+            h(
+              'div',
+              { className: 'dsh-mb-lightbox-figure' },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-mb-btn dsh-mb-btn--icon dsh-mb-lightbox-nav dsh-mb-lightbox-prev',
+                  'aria-label': t('lightboxPrev'),
+                  title: t('lightboxPrev'),
+                  disabled: !multi,
+                  onClick: () => stepLightbox(-1),
+                },
+                h(IconChevron, { size: 12, direction: 'left' }),
+              ),
+              lightboxUrl === ''
+                ? h(
+                    'span',
+                    { className: 'dsh-mb-thumb-placeholder', 'aria-hidden': 'true' },
+                    h(IconImage, { size: 18 }),
+                  )
+                : h('img', {
+                    className: 'dsh-mb-lightbox-image',
+                    src: lightboxUrl,
+                    alt: t('previewAlt', { name: lightboxImage.name }),
+                    draggable: 'false',
+                  }),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-mb-btn dsh-mb-btn--icon dsh-mb-lightbox-nav dsh-mb-lightbox-next',
+                  'aria-label': t('lightboxNext'),
+                  title: t('lightboxNext'),
+                  disabled: !multi,
+                  onClick: () => stepLightbox(1),
+                },
+                h(IconChevron, { size: 12, direction: 'right' }),
+              ),
+            ),
+            h(
+              'div',
+              { className: 'dsh-mb-lightbox-body' },
+              lightboxImage.tags.length === 0
+                ? null
+                : h(
+                    'div',
+                    { className: 'dsh-mb-lightbox-field' },
+                    h('span', { className: 'dsh-mb-label' }, t('lightboxTags')),
+                    h(
+                      'div',
+                      { className: 'dsh-mb-tags' },
+                      lightboxImage.tags.map((tag) => h('span', { key: tag, className: 'dsh-mb-tag' }, tag)),
+                    ),
+                  ),
+              lightboxImage.notes.trim() === ''
+                ? null
+                : h(
+                    'div',
+                    { className: 'dsh-mb-lightbox-field' },
+                    h('span', { className: 'dsh-mb-label' }, t('lightboxNotes')),
+                    h('p', { className: 'dsh-mb-lightbox-notes' }, lightboxImage.notes),
+                  ),
+              lightboxImage.sourceUrl === ''
+                ? null
+                : h(
+                    'div',
+                    { className: 'dsh-mb-lightbox-field' },
+                    h('span', { className: 'dsh-mb-label' }, t('lightboxSource')),
+                    h(
+                      'a',
+                      {
+                        className: 'dsh-mb-link',
+                        href: lightboxImage.sourceUrl,
+                        target: '_blank',
+                        rel: 'noreferrer noopener',
+                      },
+                      lightboxImage.sourceUrl,
+                    ),
+                  ),
+            ),
+          ),
+        )
+      }
 
       const renderMain = () => {
         if (board === null && state.loading) {
@@ -2885,6 +3355,7 @@ window.__ModuleLoader__.load({
         dropZone,
         uploads,
         h('div', { className: 'dsh-mb-body' }, h('div', { className: 'dsh-mb-main' }, renderMain()), detailsPanel),
+        renderLightbox(),
         dragActive ? h('div', { className: 'dsh-mb-drop-overlay' }, t('dropOverlay')) : null,
         h('input', {
           ref: fileInputRef,

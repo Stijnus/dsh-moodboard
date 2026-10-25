@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-25
+
+### Added
+
+- Gallery search across name, tags, notes and source URL, combinable with the
+  tag filter; drag reordering pauses while a filter or search is active.
+- Reference lightbox: full-size view with previous/next navigation, arrow keys,
+  focus trapping and focus restore, tags, notes and source link.
+
 ## [0.2.0] - 2026-10-25
 
 ### Added
