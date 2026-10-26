@@ -13,6 +13,16 @@ inspiration images in the Web UI, tag and annotate them, pin the ones that
 define your app's visual language, and let the agent read that style guide
 before it generates or restyles UI.
 
+## Preview
+
+The screenshot below shows the plugin panel. For a local walkthrough after installation:
+
+1. Open **Moodboard** from the sidebar and add a reference image.
+2. Give it a tag and a note describing the styling you want, then pin it.
+3. Use the composer’s **Moodboard** button to add the reference directive to your draft. Review and send it when ready.
+
+[Install](#quick-start) · [Requirements](#requirements) · [Agent API](#agent-api) · [Limits](#limits)
+
 ![Moodboard panel: the pinned active style guide the agent reads, and the tagged reference gallery](https://raw.githubusercontent.com/Stijnus/dsh-moodboard/main/docs/panel.jpg)
 
 ## Quick start
