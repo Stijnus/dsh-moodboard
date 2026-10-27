@@ -42,6 +42,10 @@ Restart the Harness (or refresh the Web UI). It adds a **Moodboard** entry to th
 - **Moodboard panel** in the Web UI (sidebar icon): drag-and-drop, clipboard
   paste or file-picker upload; gallery of thumbnails with drag-to-reorder and
   multi-select bulk actions; tag filter; and an active style-guide strip.
+- **Live sync**: references the agent uploads through the HTTP API (or edits
+  made from another window) show up within a few seconds — no page reload and
+  no desktop app restart. The panel fetches the board on activation, then a
+  cheap revision poll plus window focus / visibility checks keep it current.
 - **Modern, theme-aware UI**: harness-native styling built entirely on DSH
   theme tokens (surfaces, borders, text, buttons, inputs, links), with warm
   accents kept to a subtle tint on the active style-guide surface and pinned
@@ -168,10 +172,14 @@ the tool; these endpoints exist for the panel and for programmatic reads:
 | `GET /moodboard/api/active` | active guide with tags/notes/sources/brief |
 | `GET /moodboard/api/query?tag=…&match=any` | tag lookup |
 | `GET /moodboard/api/health` | liveness + image count |
+| `GET /moodboard/api/revision` | cheap change detector for the open panel `{ revision, updatedAt, images }` |
 | `GET /moodboard/image/<id>?v=<attachmentId>` | normalized image bytes for that revision |
 
 All JSON responses use `{ ok: true, … }` or
-`{ ok: false, error: { code, message } }`.
+`{ ok: false, error: { code, message } }`. `GET /moodboard/api/state` carries
+the same process-local `revision` as `/api/revision`; the panel compares it (and
+the board timestamp, so a Host reload is noticed too) with what it last applied
+and only re-reads the full board when either changed.
 
 ## Data
 

@@ -29,6 +29,11 @@ window.__ModuleLoader__.load({
     const REORDER_PATH = '/moodboard/api/images/reorder'
     const BULK_PATH = '/moodboard/api/images/bulk'
     const TAGS_MERGE_PATH = '/moodboard/api/tags/merge'
+    const REVISION_PATH = '/moodboard/api/revision'
+    /** How often the panel looks for board writes made outside this client. */
+    const REVISION_POLL_MS = 3000
+    /** A hung revision read must not stall the poll forever. */
+    const REVISION_TIMEOUT_MS = 5000
     const MAX_FILE_BYTES = 25 * 1024 * 1024
     const MAX_EDGE = 1600
     const ENCODE_QUALITY = 0.85
@@ -907,6 +912,7 @@ window.__ModuleLoader__.load({
         for (const name of Object.keys(settings.headers)) init.headers[name] = settings.headers[name]
       }
       if (settings.body !== undefined) init.body = settings.body
+      if (settings.signal !== undefined && settings.signal !== null) init.signal = settings.signal
       let response = null
       try {
         response = await fetch(path, init)
@@ -955,6 +961,18 @@ window.__ModuleLoader__.load({
     const listeners = new Set()
     let refreshToken = 0
     let uploadKeySeq = 0
+    /**
+     * Host revision last applied to `snapshot.board`. `null` means "unknown"
+     * (the activation read has not succeeded yet), so the next sync retries the
+     * full state read.
+     */
+    let boardRevision = null
+    /** Board timestamp last applied; paired with the revision to survive Host reloads. */
+    let boardUpdatedAt = null
+    /** One revision check at a time; keeps polling from stacking requests. */
+    let revisionCheckBusy = false
+    /** Cleanup for the foreground poll installed by `startBoardSync`. */
+    let boardSyncStop = null
 
     function setState(patch) {
       snapshot = { ...snapshot, ...patch }
@@ -1011,22 +1029,140 @@ window.__ModuleLoader__.load({
       })
     }
 
-    async function refresh() {
+    /** The board timestamp of a raw `/api/state` payload, or `null`. */
+    function boardUpdatedAtOf(rawBoard) {
+      return rawBoard !== null && typeof rawBoard === 'object' && typeof rawBoard.updatedAt === 'string'
+        ? rawBoard.updatedAt
+        : null
+    }
+
+    /**
+     * Re-read the full board. A silent refresh (the poll path) keeps the loaded
+     * gallery on screen and ignores transient transport failures; explicit
+     * refreshes keep the loading and error states.
+     */
+    async function refresh(options) {
+      const silent = options !== undefined && options !== null && options.silent === true
       refreshToken += 1
       const token = refreshToken
-      setState({ loading: true })
+      if (!silent) setState({ loading: true })
       try {
         const payload = await requestJson(`${API_ROOT}/state`)
         if (token !== refreshToken) return
+        const recovering = snapshot.board === null
+        if (Number.isSafeInteger(payload.revision)) boardRevision = payload.revision
+        boardUpdatedAt = boardUpdatedAtOf(payload.board)
         applyBoard(payload.board)
+        // A successful read clears the "could not load" banner left behind by an
+        // earlier failed activation or retry read.
+        if (recovering && snapshot.error !== '') setState({ error: '' })
       } catch (error) {
         if (token !== refreshToken) return
+        if (silent) {
+          // The poll can take the token from a non-silent refresh that was
+          // showing the loading state, so always release that flag here. A
+          // missing board still needs the load error.
+          const patch = {}
+          if (snapshot.loading) patch.loading = false
+          if (snapshot.board === null) patch.error = msg('loadFailed', { message: messageOf(error) })
+          if (Object.keys(patch).length > 0) setState(patch)
+          return
+        }
         setState({ loading: false, error: msg('loadFailed', { message: messageOf(error) }) })
       }
     }
 
     function ensureLoaded() {
       if (snapshot.board === null && !snapshot.loading) void refresh()
+    }
+
+    /**
+     * Compare the host revision with the one applied to this store and re-read
+     * the board only when they differ. Returns whether a refresh was applied.
+     * A not-yet-loaded board also retries the initial read, so a panel opened
+     * while the Host was still starting recovers on its own.
+     */
+    async function pullBoardRevision() {
+      if (revisionCheckBusy) return false
+      revisionCheckBusy = true
+      try {
+        if (snapshot.loading || snapshot.uploading || snapshot.mutating) return false
+        if (snapshot.board === null) {
+          await refresh({ silent: true })
+          return snapshot.board !== null
+        }
+        let payload
+        const controller = typeof AbortController === 'function' ? new AbortController() : null
+        const timer =
+          controller !== null && typeof setTimeout === 'function'
+            ? setTimeout(() => controller.abort(), REVISION_TIMEOUT_MS)
+            : null
+        try {
+          payload = await requestJson(REVISION_PATH, controller === null ? undefined : { signal: controller.signal })
+        } catch (error) {
+          return false
+        } finally {
+          if (timer !== null) clearTimeout(timer)
+        }
+        // A full refresh may have started meanwhile; it owns the state read and
+        // the loading flag, so wait for it instead of superseding it.
+        if (snapshot.loading) return false
+        const revision = payload !== null && typeof payload === 'object' ? payload.revision : undefined
+        // The revision resets when the Host itself reloads, so pair it with the
+        // board timestamp: a reload that reads a newer board still refreshes.
+        const updatedAt = payload !== null && typeof payload === 'object' ? payload.updatedAt : undefined
+        const timestampKnown = typeof updatedAt === 'string' || updatedAt === null
+        const revisionChanged = Number.isSafeInteger(revision) && revision !== boardRevision
+        const timestampChanged = timestampKnown && updatedAt !== boardUpdatedAt
+        if (!revisionChanged && !timestampChanged) return false
+        await refresh({ silent: true })
+        return true
+      } finally {
+        revisionCheckBusy = false
+      }
+    }
+
+    /**
+     * Keep the board in sync with writes made outside this client session: an
+     * agent adding references through the HTTP API, another window, or a
+     * reconnect. Polls one cheap revision read while the document is visible and
+     * checks immediately on focus, network recovery and visibility return.
+     */
+    function startBoardSync() {
+      if (boardSyncStop !== null) return boardSyncStop
+      const check = () => {
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+        void pullBoardRevision()
+      }
+      const onVisibilityChange = () => {
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+        void pullBoardRevision()
+      }
+      const onForeground = () => {
+        void pullBoardRevision()
+      }
+      const timer = typeof setInterval === 'function' ? setInterval(check, REVISION_POLL_MS) : null
+      if (timer !== null && typeof timer === 'object' && typeof timer.unref === 'function') timer.unref()
+      if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange)
+      if (typeof window !== 'undefined') {
+        window.addEventListener('focus', onForeground)
+        window.addEventListener('online', onForeground)
+      }
+      const stop = () => {
+        if (timer !== null) clearInterval(timer)
+        if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityChange)
+        if (typeof window !== 'undefined') {
+          window.removeEventListener('focus', onForeground)
+          window.removeEventListener('online', onForeground)
+        }
+        if (boardSyncStop === stop) boardSyncStop = null
+      }
+      boardSyncStop = stop
+      return stop
+    }
+
+    function stopBoardSync() {
+      if (boardSyncStop !== null) boardSyncStop()
     }
 
     function selectImage(id) {
@@ -3193,6 +3329,9 @@ window.__ModuleLoader__.load({
 
       useEffect(() => {
         ensureLoaded()
+        // Opening the panel is a good moment to pick up writes made while it was
+        // closed (for example references the agent just added).
+        void pullBoardRevision()
       }, [])
 
       // A new filter, search term or image count starts the gallery at one page.
@@ -4890,7 +5029,10 @@ window.__ModuleLoader__.load({
           void refresh()
         })
 
+        ctx.effect(() => startBoardSync())
+
         ctx.effect(() => () => {
+          stopBoardSync()
           disposeImageUrls()
         })
 

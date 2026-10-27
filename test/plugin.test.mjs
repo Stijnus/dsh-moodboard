@@ -3,6 +3,7 @@ import { readFile, mkdtemp, mkdir, rm, rename } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
+import { createServer } from 'node:http'
 import { apply } from '../index.js'
 import test from 'node:test'
 import { createHash } from 'node:crypto'
@@ -426,4 +427,529 @@ test('metadata editor follows server revisions while preserving actual unsaved e
   render(externalUpdate)
   tree = render(externalUpdate)
   assert.equal(find(tree, nameInput).props.value, 'my unsaved name')
+})
+
+test('revision endpoint tracks writes made outside the panel and state carries it', async () => {
+  await withBoard(async ({ request }) => {
+    const first = await request('GET', '/api/revision')
+    assert.equal(first.status, 200)
+    assert.equal(first.body.ok, true)
+    assert.ok(Number.isSafeInteger(first.body.revision) && first.body.revision >= 1, 'the activation load must set a positive revision')
+    assert.equal(first.body.images, 0)
+    assert.equal((await request('GET', '/api/state')).body.revision, first.body.revision)
+
+    const created = await request('POST', '/api/images', upload)
+    const second = await request('GET', '/api/revision')
+    assert.ok(second.body.revision > first.body.revision, 'an external upload must bump the revision')
+    assert.equal(second.body.images, 1)
+    assert.match(second.body.updatedAt, /^\d{4}-\d\d-\d\dT/)
+
+    // Reads never bump the revision, so a polling client stays quiet.
+    assert.equal((await request('GET', '/api/revision')).body.revision, second.body.revision)
+
+    await request('PATCH', '/api/images/' + created.body.image.id, { pinned: true, tags: ['quiet'] })
+    const third = await request('GET', '/api/revision')
+    assert.ok(third.body.revision > second.body.revision, 'an external patch must bump the revision')
+
+    await request('DELETE', '/api/images/' + created.body.image.id)
+    const fourth = await request('GET', '/api/revision')
+    assert.ok(fourth.body.revision > third.body.revision, 'an external delete must bump the revision')
+    assert.equal(fourth.body.images, 0)
+  })
+})
+
+test('0.2.9 live board sync is wired on both halves', async () => {
+  const host = await read('index.js')
+  for (const anchor of ['handleRevision', "case 'revision'", 'getRevision']) {
+    assert.ok(host.includes(anchor), `host source must reference ${anchor}`)
+  }
+  const client = await read('client.js')
+  for (const anchor of [
+    '/moodboard/api/revision',
+    'REVISION_POLL_MS',
+    'startBoardSync',
+    'stopBoardSync',
+    'pullBoardRevision',
+    'visibilitychange',
+  ]) {
+    assert.ok(client.includes(anchor), `client source must reference ${anchor}`)
+  }
+  // The lifecycle wiring, not just the declarations: activation starts the poll
+  // and disposal removes it (whitespace-normalized so reformatting is safe).
+  assert.match(client, /ctx\.effect\(\(\) => startBoardSync\(\)\)/)
+  assert.match(client, /stopBoardSync\(\)\s*\n\s*disposeImageUrls\(\)/)
+})
+
+/** Resolve after the microtask queue (and one macrotask) has drained. */
+async function flushAsync() {
+  await new Promise((resolve) => setImmediate(resolve))
+  await new Promise((resolve) => setImmediate(resolve))
+}
+
+const jsonResponse = (payload) => ({ ok: true, status: 200, json: async () => payload })
+
+async function loadClientModule(fetch, extraContext = {}, extraWindow = {}) {
+  let plugin
+  const window = {
+    ...extraWindow,
+    __ModuleLoader__: { load: ({ factory }) => { plugin = factory(() => ({})) } },
+  }
+  const source = (await read('client.js')).replace(
+    "inject: ['slots', 'locale'],",
+    "inject: ['slots', 'locale'], pullBoardRevision, getSnapshot, refresh, startBoardSync, stopBoardSync, applyBoard, setState,",
+  )
+  runInNewContext(source, { window, fetch, ...extraContext })
+  return plugin
+}
+
+function eventTarget(initial = {}) {
+  const listeners = new Map()
+  return {
+    ...initial,
+    addEventListener(type, listener) {
+      const set = listeners.get(type) ?? new Set()
+      set.add(listener)
+      listeners.set(type, set)
+    },
+    removeEventListener(type, listener) {
+      listeners.get(type)?.delete(listener)
+    },
+    listenerCount(type) {
+      return listeners.get(type)?.size ?? 0
+    },
+    emit(type) {
+      for (const listener of [...(listeners.get(type) ?? [])]) listener({ type })
+    },
+  }
+}
+
+test('client polls the revision and silently adopts external board writes', async () => {
+  let revision = 1
+  let serverBoard = { version: 1, updatedAt: 'one', images: [] }
+  const calls = []
+  let failRevision = false
+  let deferState = false
+  let releaseState = () => {}
+  const fetch = async (url) => {
+    const path = String(url)
+    calls.push(path)
+    if (path.endsWith('/api/revision')) {
+      if (failRevision) throw new Error('offline')
+      return jsonResponse({ ok: true, revision, updatedAt: serverBoard.updatedAt, images: serverBoard.images.length })
+    }
+    if (deferState) {
+      deferState = false
+      await new Promise((resolve) => {
+        releaseState = resolve
+      })
+    }
+    return jsonResponse({ ok: true, revision, board: serverBoard })
+  }
+  const plugin = await loadClientModule(fetch)
+  await plugin.refresh()
+  assert.equal(plugin.getSnapshot().board.images.length, 0)
+  assert.deepEqual(calls, ['/moodboard/api/state'])
+
+  calls.length = 0
+  assert.equal(await plugin.pullBoardRevision(), false)
+  assert.deepEqual(calls, ['/moodboard/api/revision'], 'an unchanged revision must not re-read the board')
+
+  // Uploads and mutations in flight are never interrupted by a poll.
+  plugin.setState({ uploading: true })
+  calls.length = 0
+  assert.equal(await plugin.pullBoardRevision(), false)
+  assert.deepEqual(calls, [], 'a poll must not run while an upload is in flight')
+  plugin.setState({ uploading: false })
+
+  // The revision resets when the Host reloads, so a newer board timestamp must
+  // still trigger a state read.
+  serverBoard = { version: 1, updatedAt: 'one-b', images: [] }
+  calls.length = 0
+  assert.equal(await plugin.pullBoardRevision(), true)
+  assert.deepEqual(calls, ['/moodboard/api/revision', '/moodboard/api/state'])
+
+  // An agent uploads a reference: the next check pulls the full board silently.
+  revision = 2
+  serverBoard = {
+    version: 1,
+    updatedAt: 'two',
+    images: [{ id: 'mb_0123456789ab', name: 'agent.png', imageUrl: '/moodboard/image/mb_0123456789ab?v=abc' }],
+  }
+  calls.length = 0
+  deferState = true
+  const pendingPoll = plugin.pullBoardRevision()
+  await flushAsync()
+  assert.equal(plugin.getSnapshot().loading, false, 'the silent refresh must not show the loading state')
+  assert.equal(plugin.getSnapshot().board.images.length, 0, 'the current board stays visible while the read is in flight')
+  releaseState()
+  assert.equal(await pendingPoll, true)
+  assert.equal(plugin.getSnapshot().board.images.length, 1)
+  assert.equal(plugin.getSnapshot().board.images[0].name, 'agent.png')
+  assert.equal(plugin.getSnapshot().loading, false)
+  assert.equal(plugin.getSnapshot().error, '')
+  assert.deepEqual(calls, ['/moodboard/api/revision', '/moodboard/api/state'])
+
+  // A transient poll failure stays invisible while a board is loaded.
+  failRevision = true
+  assert.equal(await plugin.pullBoardRevision(), false)
+  assert.equal(plugin.getSnapshot().board.images.length, 1)
+  assert.equal(plugin.getSnapshot().error, '')
+})
+
+test('a poll never supersedes an in-flight full refresh and leaves no loading state behind', async () => {
+  let stateCalls = 0
+  let releaseState = () => {}
+  const fetch = async (url) => {
+    const path = String(url)
+    if (path.endsWith('/api/revision')) {
+      return jsonResponse({ ok: true, revision: 2, updatedAt: 'two', images: 0 })
+    }
+    stateCalls += 1
+    if (stateCalls === 1) {
+      await new Promise((resolve) => {
+        releaseState = resolve
+      })
+    }
+    return { ok: false, status: 500, json: async () => ({ ok: false, error: { code: 'storage-failed', message: 'boom' } }) }
+  }
+  const plugin = await loadClientModule(fetch)
+  const slowRefresh = plugin.refresh()
+  await flushAsync()
+  assert.equal(plugin.getSnapshot().loading, true)
+
+  // The revision changed, but the full refresh owns the read: the poll waits.
+  assert.equal(await plugin.pullBoardRevision(), false)
+  assert.equal(stateCalls, 1, 'the poll must not start a second state read')
+
+  releaseState()
+  await slowRefresh
+  assert.equal(plugin.getSnapshot().loading, false, 'the failed full refresh must clear the loading state')
+  assert.notEqual(plugin.getSnapshot().error, '')
+})
+
+test('a poll lets a full refresh that started during its revision read win', async () => {
+  let stateCalls = 0
+  let revisionCalls = 0
+  let releaseRevision = () => {}
+  let releaseState = () => {}
+  let serverBoard = { version: 1, updatedAt: 'one', images: [] }
+  const fetch = async (url) => {
+    const path = String(url)
+    if (path.endsWith('/api/revision')) {
+      revisionCalls += 1
+      if (revisionCalls === 1) {
+        await new Promise((resolve) => {
+          releaseRevision = resolve
+        })
+      }
+      return jsonResponse({ ok: true, revision: 2, updatedAt: serverBoard.updatedAt, images: serverBoard.images.length })
+    }
+    stateCalls += 1
+    if (stateCalls === 2) {
+      await new Promise((resolve) => {
+        releaseState = resolve
+      })
+    }
+    return jsonResponse({ ok: true, revision: stateCalls === 1 ? 1 : 2, board: serverBoard })
+  }
+  const plugin = await loadClientModule(fetch)
+  await plugin.refresh()
+  assert.equal(stateCalls, 1)
+
+  // The poll starts first and its revision read is slow.
+  const poll = plugin.pullBoardRevision()
+  await flushAsync()
+  // A mutation-triggered full refresh starts while that read is in flight.
+  serverBoard = {
+    version: 1,
+    updatedAt: 'two',
+    images: [{ id: 'mb_0123456789ab', name: 'fresh.png', imageUrl: '/moodboard/image/mb_0123456789ab?v=2' }],
+  }
+  const fullRefresh = plugin.refresh()
+  await flushAsync()
+  assert.equal(plugin.getSnapshot().loading, true)
+
+  releaseRevision()
+  assert.equal(await poll, false, 'the poll must defer to the full refresh')
+  assert.equal(stateCalls, 2, 'the poll must not start its own silent state read')
+
+  releaseState()
+  await fullRefresh
+  assert.equal(stateCalls, 2)
+  assert.equal(plugin.getSnapshot().loading, false)
+  assert.equal(plugin.getSnapshot().board.images[0].name, 'fresh.png')
+})
+
+test('client auto-recovers a failed activation read and clears the load error', async () => {
+  let failing = true
+  const board = {
+    version: 1,
+    updatedAt: 'one',
+    images: [{ id: 'mb_0123456789ab', name: 'recovered.png', imageUrl: '/moodboard/image/mb_0123456789ab?v=1' }],
+  }
+  const fetch = async (url) => {
+    if (failing) {
+      return { ok: false, status: 500, json: async () => ({ ok: false, error: { code: 'storage-failed', message: 'boom' } }) }
+    }
+    if (String(url).endsWith('/api/revision')) return jsonResponse({ ok: true, revision: 1, updatedAt: board.updatedAt, images: 1 })
+    return jsonResponse({ ok: true, revision: 1, board })
+  }
+  const plugin = await loadClientModule(fetch)
+  await plugin.refresh()
+  assert.equal(plugin.getSnapshot().board, null)
+  assert.notEqual(plugin.getSnapshot().error, '')
+
+  failing = false
+  assert.equal(await plugin.pullBoardRevision(), true)
+  assert.equal(plugin.getSnapshot().board.images[0].name, 'recovered.png')
+  assert.equal(plugin.getSnapshot().error, '', 'the stale load error must clear once the board arrives')
+})
+
+test('foreground board sync checks on visibility return and pauses while hidden', async () => {
+  let revision = 1
+  let serverBoard = { version: 1, updatedAt: 'one', images: [] }
+  const calls = []
+  const fetch = async (url) => {
+    calls.push(String(url))
+    if (String(url).endsWith('/api/revision')) {
+      return jsonResponse({ ok: true, revision, updatedAt: serverBoard.updatedAt, images: serverBoard.images.length })
+    }
+    return jsonResponse({ ok: true, revision, board: serverBoard })
+  }
+  const intervals = []
+  const cleared = []
+  const context = {
+    document: eventTarget({ visibilityState: 'visible' }),
+    setInterval: (callback, delay) => {
+      intervals.push({ callback, delay })
+      return { unref() {} }
+    },
+    clearInterval: (timer) => cleared.push(timer),
+  }
+  const windowEvents = eventTarget()
+  const plugin = await loadClientModule(fetch, context, windowEvents)
+  await plugin.refresh()
+  assert.equal(plugin.getSnapshot().board.images.length, 0)
+
+  const stop = plugin.startBoardSync()
+  assert.equal(typeof stop, 'function')
+  assert.equal(intervals.length, 1)
+  assert.equal(intervals[0].delay, 3000)
+  assert.equal(context.document.listenerCount('visibilitychange'), 1)
+  assert.equal(windowEvents.listenerCount('focus'), 1)
+
+  // A visible tick with a new revision applies the external upload.
+  revision = 2
+  serverBoard = {
+    version: 1,
+    updatedAt: 'two',
+    images: [{ id: 'mb_0123456789ab', name: 'agent.png', imageUrl: '/moodboard/image/mb_0123456789ab?v=abc' }],
+  }
+  intervals[0].callback()
+  await flushAsync()
+  assert.equal(plugin.getSnapshot().board.images.length, 1)
+
+  // While the document is hidden the timer does not poll at all.
+  calls.length = 0
+  context.document.visibilityState = 'hidden'
+  revision = 3
+  intervals[0].callback()
+  await flushAsync()
+  assert.deepEqual(calls, [])
+
+  // Returning to the tab checks immediately instead of waiting for the ticker.
+  context.document.visibilityState = 'visible'
+  serverBoard = {
+    version: 1,
+    updatedAt: 'three',
+    images: [
+      { id: 'mb_0123456789ab', name: 'a.png', imageUrl: '/moodboard/image/a?v=1' },
+      { id: 'mb_0123456789ac', name: 'b.png', imageUrl: '/moodboard/image/b?v=1' },
+    ],
+  }
+  revision = 4
+  context.document.emit('visibilitychange')
+  await flushAsync()
+  assert.equal(plugin.getSnapshot().board.images.length, 2)
+
+  // Window focus checks immediately too.
+  revision = 5
+  serverBoard = {
+    version: 1,
+    updatedAt: 'five',
+    images: [{ id: 'mb_0123456789ab', name: 'a.png', imageUrl: '/moodboard/image/a?v=1' }],
+  }
+  windowEvents.emit('focus')
+  await flushAsync()
+  assert.equal(plugin.getSnapshot().board.images.length, 1)
+
+  plugin.stopBoardSync()
+  assert.equal(cleared.length, 1)
+  assert.equal(context.document.listenerCount('visibilitychange'), 0)
+  assert.equal(windowEvents.listenerCount('focus'), 0)
+  assert.equal(windowEvents.listenerCount('online'), 0)
+})
+
+test('a silent state-read failure keeps the loaded board and hides the error', async () => {
+  let revision = 1
+  let serverBoard = { version: 1, updatedAt: 'one', images: [] }
+  let failState = false
+  const fetch = async (url) => {
+    const path = String(url)
+    if (path.endsWith('/api/revision')) {
+      return jsonResponse({ ok: true, revision, updatedAt: serverBoard.updatedAt, images: serverBoard.images.length })
+    }
+    if (failState) {
+      return { ok: false, status: 500, json: async () => ({ ok: false, error: { code: 'storage-failed', message: 'boom' } }) }
+    }
+    return jsonResponse({ ok: true, revision, board: serverBoard })
+  }
+  const plugin = await loadClientModule(fetch)
+  await plugin.refresh()
+  assert.equal(plugin.getSnapshot().board.images.length, 0)
+
+  // A transient state read during a poll must not turn into a load-error banner.
+  revision = 2
+  failState = true
+  await plugin.pullBoardRevision()
+  assert.equal(plugin.getSnapshot().board.images.length, 0, 'the loaded board must be kept')
+  assert.equal(plugin.getSnapshot().loading, false)
+  assert.equal(plugin.getSnapshot().error, '')
+
+  // With no board loaded yet the same failure must still report the load error.
+  const broken = await loadClientModule(async (url) => {
+    if (String(url).endsWith('/api/revision')) return jsonResponse({ ok: true, revision: 1, updatedAt: null, images: 0 })
+    return { ok: false, status: 500, json: async () => ({ ok: false, error: { code: 'storage-failed', message: 'boom' } }) }
+  })
+  assert.equal(await broken.pullBoardRevision(), false)
+  assert.equal(broken.getSnapshot().board, null)
+  assert.equal(broken.getSnapshot().loading, false)
+  assert.notEqual(broken.getSnapshot().error, '')
+})
+
+test('a revision read is aborted after the timeout and the next poll still works', async () => {
+  let revision = 1
+  let serverBoard = { version: 1, updatedAt: 'one', images: [] }
+  let aborted = 0
+  const fetch = async (url, init) => {
+    const path = String(url)
+    if (path.endsWith('/api/revision')) {
+      if (init !== undefined && init.signal !== undefined && init.signal.aborted) {
+        aborted += 1
+        throw new Error('aborted')
+      }
+      return jsonResponse({ ok: true, revision, updatedAt: serverBoard.updatedAt, images: serverBoard.images.length })
+    }
+    return jsonResponse({ ok: true, revision, board: serverBoard })
+  }
+  let timeouts = 0
+  let cleared = 0
+  const context = {
+    AbortController,
+    setTimeout: (callback) => {
+      timeouts += 1
+      if (timeouts === 1) callback()
+      return timeouts
+    },
+    clearTimeout: () => {
+      cleared += 1
+    },
+  }
+  const plugin = await loadClientModule(fetch, context)
+  await plugin.refresh()
+  assert.equal(await plugin.pullBoardRevision(), false, 'an aborted revision read reports no change')
+  assert.equal(timeouts, 1, 'the revision read must be given a deadline')
+  assert.equal(aborted, 1, 'the deadline must abort the in-flight read')
+  assert.equal(cleared, 1, 'the deadline timer must be cleared when the read settles')
+  assert.equal(plugin.getSnapshot().error, '')
+
+  // The abort released the busy flag, so a real change is picked up next tick.
+  revision = 2
+  serverBoard = {
+    version: 1,
+    updatedAt: 'two',
+    images: [{ id: 'mb_0123456789ab', name: 'later.png', imageUrl: '/moodboard/image/mb_0123456789ab?v=2' }],
+  }
+  assert.equal(await plugin.pullBoardRevision(), true)
+  assert.equal(timeouts, 2)
+  assert.equal(cleared, 2)
+  assert.equal(plugin.getSnapshot().board.images[0].name, 'later.png')
+})
+
+/**
+ * Run the Host half behind a real HTTP server with a temporary `DSH_HOME`, so a
+ * test can reproduce the reported flow: an external caller (the agent) uploads
+ * over HTTP while the client half polls the revision endpoint.
+ */
+async function withHttpBoard(run) {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-moodboard-http-'))
+  const oldHome = process.env.DSH_HOME
+  let server
+  try {
+    process.env.DSH_HOME = root
+    let handler
+    const imageBytes = new Map()
+    apply({
+      effect: (fn) => fn(),
+      webServer: { register: (route) => { handler = route.handler; return () => {} } },
+      tools: { register: () => () => {} },
+      systemPrompt: { section: () => () => {} },
+      connection: { admit: () => ({ peer: { principal: { kind: 'owner' } } }) },
+      logger: { warn() {} },
+      attachments: {
+        saveImage: async ({ data, mediaType, name }) => {
+          const attachmentId = createHash('sha256').update(data).digest('hex')
+          imageBytes.set(attachmentId, data)
+          return { attachmentId, bytes: data.length, mediaType, name, width: 1, height: 1 }
+        },
+        readImage: async (ref) => ({ ref, data: imageBytes.get(ref.attachmentId) }),
+      },
+    })
+    server = createServer((request, response) => handler(request, response))
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const origin = `http://127.0.0.1:${server.address().port}`
+    await run({ origin })
+  } finally {
+    if (server !== undefined) await new Promise((resolve) => server.close(resolve))
+    if (oldHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = oldHome
+    await rm(root, { recursive: true, force: true })
+  }
+}
+
+test('an agent upload over real HTTP reaches the polling client without a reload', async () => {
+  await withHttpBoard(async ({ origin }) => {
+    // The client runs in a VM with the real fetch pointed at the test origin.
+    const plugin = await loadClientModule((path, init) => fetch(origin + path, init))
+    await plugin.refresh()
+    assert.equal(plugin.getSnapshot().board.images.length, 0)
+
+    const created = await fetch(origin + '/moodboard/api/images', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...upload, name: 'agent-added.png', tags: ['agent'] }),
+    })
+    assert.equal(created.status, 200)
+    assert.equal((await created.json()).ok, true)
+
+    // This is the regression: before the fix the client never noticed the write.
+    assert.equal(await plugin.pullBoardRevision(), true)
+    assert.equal(plugin.getSnapshot().board.images.length, 1)
+    assert.equal(plugin.getSnapshot().board.images[0].name, 'agent-added.png')
+    assert.equal(plugin.getSnapshot().loading, false)
+    assert.equal(plugin.getSnapshot().error, '')
+
+    // The same revision must not re-read the board on the next tick.
+    assert.equal(await plugin.pullBoardRevision(), false)
+
+    // An external pin (PATCH) is adopted on the next tick too.
+    const patched = await fetch(origin + '/moodboard/api/images/' + plugin.getSnapshot().board.images[0].id, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pinned: true }),
+    })
+    assert.equal(patched.status, 200)
+    assert.equal(await plugin.pullBoardRevision(), true)
+    assert.equal(plugin.getSnapshot().board.images[0].pinned, true)
+  })
 })

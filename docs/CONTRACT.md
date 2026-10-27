@@ -240,7 +240,7 @@ Codes: `unauthorized` (401), `forbidden` (403), `not-found` (404),
 
 | Method + path | Body / query | Success |
 |---|---|---|
-| `GET /moodboard/api/state` | — | `{ ok, board: BoardView }` |
+| `GET /moodboard/api/state` | — | `{ ok, revision, board: BoardView }` |
 | `POST /moodboard/api/images` | `{ data, mediaType, name?, tags?, notes?, sourceUrl? }` | `{ ok, image: ImageView }` |
 | `PATCH /moodboard/api/images/<id>` | any of `{ name, tags, notes, sourceUrl, pinned, order }` | `{ ok, image }` |
 | `POST /moodboard/api/images/<id>/replace` | `{ data, mediaType, name? }` | `{ ok, image }` |
@@ -251,11 +251,19 @@ Codes: `unauthorized` (401), `forbidden` (403), `not-found` (404),
 | `GET /moodboard/api/active` | — | `{ ok, guide: { images, allTags, tagCounts, fallback }, brief }` |
 | `GET /moodboard/api/query` | `?tag=a&tag=b&match=any\|all&limit=50` | `{ ok, images, brief, total }` |
 | `GET /moodboard/api/health` | — | `{ ok, version: 1, images: <n> }` |
+| `GET /moodboard/api/revision` | — | `{ ok, revision, updatedAt, images }` |
 | `GET /moodboard/image/<id>` | — | raw normalized image bytes, `content-type: <mediaType>`, `cache-control: private, max-age=31536000, immutable`; 404 JSON on miss |
 
 - `data` is standard base64 (no data-URL prefix). Decode with
   `Buffer.from(data, 'base64')`. Reject base64 whose decoded length is 0 or
   whose encoded string exceeds **32 MB** (`image-too-large`).
+- `revision` is a process-local monotonic integer: the Host bumps it after the
+  activation load and after every committed write, and never on reads. Clients
+  compare it (`/api/revision`) to detect writes made by another caller — for
+  example the agent uploading references — and re-read `/api/state` only when it
+  changed. It resets when the plugin Host reloads, so clients pair it with the
+  board `updatedAt`: a reload that reads a newer board still refreshes once
+  through the changed timestamp.
 - `mediaType` must be one of the four image media types.
 - Image URLs include the URL-encoded attachment id as `v`. Versioned requests
   must match the current attachment or return 404; only matching versioned
@@ -362,6 +370,19 @@ Behaviour:
   (`useSyncExternalStore`). Fetch `GET /moodboard/api/state` on plugin
   activation and after every mutation; optimistic updates are optional but the
   store must reconcile with server responses.
+- **External-write refresh:** keep the board in sync with writes made outside
+  this client session (the agent uploading references over HTTP, another window,
+  a reconnect). Poll `GET /moodboard/api/revision` about every 3 s while the
+  document is visible, and check immediately on window `focus`, `online` and
+  visibility return. When the revision (or the board `updatedAt`, so a Host
+  reload is noticed) differs from the last applied state, re-read `/api/state`
+  **silently**: keep the loaded gallery, do not show the loading skeleton, and
+  do not surface transient poll failures as an error banner while a board is
+  loaded. Abort a revision read that hangs (5 s) so the poll cannot stall, and
+  let a full refresh that is already running win instead of superseding it (it
+  owns the loading flag). Skip checks while a refresh, upload or mutation is in
+  flight. The poll and its listeners must be removed on disposal (and
+  reinstalled on a later mount). Opening the panel also checks once.
 - Images: fetch `imageUrl` as a blob (`fetch(url, { credentials: 'same-origin' })`),
   cache the object URL per `id + imageUrl` in a module Map. Revoke obsolete
   revisions on board refresh and all remaining URLs on plugin disposal; discard

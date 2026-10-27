@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.2.9 — 2026-10-27
+
+### Fixed
+
+- The panel now picks up board writes made outside its own session — most
+  importantly references the agent adds through `POST /moodboard/api/images` —
+  instead of showing a stale board until the page or desktop app is reloaded.
+  The client polls a cheap revision endpoint every few seconds while the
+  document is visible and checks immediately on window focus, network recovery
+  and visibility return; a changed revision (or board timestamp, so a Host
+  reload is noticed too) re-reads `/api/state`, and that refresh stays silent
+  (no loading skeleton, no error banner while a board is loaded). Uploads and
+  mutations in flight are never interrupted by a poll, a hung revision read is
+  aborted after 5 s, and the poll defers to any full refresh already running.
+- A poll that recovers a failed activation read clears the stale "could not
+  load" banner instead of leaving the loaded board under it.
+- Added `GET /moodboard/api/revision` (`{ ok, revision, updatedAt, images }`)
+  for change detection; `GET /moodboard/api/state` now carries the same
+  process-local monotonic `revision` alongside `board`. Reads never bump it, and
+  every committed write does.
+
+### Added
+
+- Regression tests for the revision endpoint (external upload, patch and delete
+  bump it; reads do not; the activation load sets a positive revision) and for
+  the client sync loop (unchanged revisions and timestamps do not re-read, the
+  poll path never shows the loading state, hidden documents do not poll,
+  foreground events check at once, transient revision- and state-read failures
+  stay invisible once a board is loaded, the revision read is aborted at its
+  deadline and the next poll still works, a poll never supersedes an in-flight
+  refresh, auto-recovery clears the load error, and disposal stops the
+  timer/listeners), plus an end-to-end test driving a real loopback HTTP Host
+  while the client polls — the exact reported flow.
+
 ## 0.2.8 — 2026-10-25
 
 ### Changed

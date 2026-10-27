@@ -185,6 +185,16 @@ function createBoardStore(ctx) {
   let readyPromise = Promise.resolve()
   let writeChain = Promise.resolve()
   let dirPromise
+  // Monotonic in-process revision, bumped after every load and every durable
+  // commit. Clients poll it (cheaply) to notice writes made outside their own
+  // panel, such as an agent adding references through the HTTP API.
+  let revision = 0
+
+  /** Mark the read model as loaded and advertise the new revision. */
+  function markLoaded() {
+    loaded = true
+    revision += 1
+  }
 
   /** Create the data directory with mode 0700 (retried after a failure). */
   function ensureDirectory() {
@@ -224,7 +234,7 @@ function createBoardStore(ctx) {
     } catch (error) {
       if (isFileMissing(error)) {
         board = emptyBoard()
-        loaded = true
+        markLoaded()
         return
       }
       throw error
@@ -236,7 +246,7 @@ function createBoardStore(ctx) {
     } catch {
       await quarantine('is not valid JSON')
       board = emptyBoard()
-      loaded = true
+      markLoaded()
       return
     }
 
@@ -244,12 +254,12 @@ function createBoardStore(ctx) {
     if (normalized === null) {
       await quarantine('does not match the board schema')
       board = emptyBoard()
-      loaded = true
+      markLoaded()
       return
     }
 
     board = normalized
-    loaded = true
+    markLoaded()
   }
 
   /** Write a full board snapshot atomically: temp file in the same dir + rename. */
@@ -288,6 +298,7 @@ function createBoardStore(ctx) {
         throw httpError('storage-failed', 'the moodboard could not be saved to disk')
       }
       board = draft
+      revision += 1
       return result
     })
     writeChain = run.then(
@@ -320,6 +331,10 @@ function createBoardStore(ctx) {
     /** Current in-memory read model; treat as immutable outside `mutate`. */
     current() {
       return board
+    },
+    /** Monotonic in-process revision for clients that poll for external writes. */
+    getRevision() {
+      return revision
     },
     mutate,
   }
@@ -482,6 +497,9 @@ async function dispatch(store, ctx, request, response, method, segments, url) {
       case 'state':
         requireMethod(method, 'GET')
         return handleState(store, response)
+      case 'revision':
+        requireMethod(method, 'GET')
+        return handleRevision(store, response)
       case 'active':
         requireMethod(method, 'GET')
         return handleActive(store, response)
@@ -548,7 +566,24 @@ function decodeSegment(segment) {
 /** `GET /api/state` */
 async function handleState(store, response) {
   await store.ready()
-  sendJson(response, 200, { ok: true, board: boardView(store.current()) })
+  sendJson(response, 200, { ok: true, revision: store.getRevision(), board: boardView(store.current()) })
+}
+
+/**
+ * `GET /api/revision` — a small change detector for clients that keep the panel
+ * in sync with writes made outside their own session (the agent's HTTP uploads).
+ * The revision is process-local and monotonic; a changed value means the client
+ * should re-read `/api/state`.
+ */
+async function handleRevision(store, response) {
+  await store.ready()
+  const board = store.current()
+  sendJson(response, 200, {
+    ok: true,
+    revision: store.getRevision(),
+    updatedAt: board.updatedAt,
+    images: board.images.length,
+  })
 }
 
 /** `GET /api/health` */
