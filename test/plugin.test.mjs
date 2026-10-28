@@ -458,6 +458,17 @@ test('revision endpoint tracks writes made outside the panel and state carries i
   })
 })
 
+test('0.2.11 quiet star-suite link replaces the timed popup', async () => {
+  const client = await read('client.js')
+  for (const expected of ['STAR_SUITE_URL', "starSuite: '", "starSuiteTitle: '"]) {
+    assert.ok(client.includes(expected), `client source must reference ${expected}`)
+  }
+  for (const removed of ['dsh-stijnus-star-cta/v1', 'StarSuiteCta', "ctx.slots.inject('shell.overlay'"]) {
+    assert.ok(!client.includes(removed), `client source must not contain ${removed}`)
+  }
+  assert.match(client, /https:\/\/github\.com\/Stijnus\?tab=repositories&q=dsh/)
+})
+
 test('0.2.9 live board sync is wired on both halves', async () => {
   const host = await read('index.js')
   for (const anchor of ['handleRevision', "case 'revision'", 'getRevision']) {
