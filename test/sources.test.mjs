@@ -916,6 +916,7 @@ test('validates Mobbin discover input before fetching', async () => {
   }
   const options = mobbinOptions(noFetch)
   await assertRejectsWithCode(discoverReferences({ source: 'dribbble', query: 'x' }, options), 'invalid-argument')
+  await assertRejectsWithCode(discoverReferences({ source: 'web', query: 'x' }, options), 'invalid-argument')
   await assertRejectsWithCode(discoverReferences({ source: 'mobbin', query: '' }, options), 'invalid-argument')
   await assertRejectsWithCode(
     discoverReferences({ source: 'mobbin', query: 'x'.repeat(501) }, options),
@@ -1003,9 +1004,9 @@ test('searches Are.na publicly and parses blocks', async () => {
   )
 
   assert.equal(drafts.length, 2)
-  assert.equal(failures.length, 1)
-  assert.equal(failures[0].code, 'no-preview-image')
-  assert.equal(failures[0].input, 'Are.na block 12')
+  // The text block is skipped, not counted against the limit or reported as a
+  // failure.
+  assert.equal(failures.length, 0)
 
   const [first, second] = drafts
   assert.equal(first.origin, 'arena')
@@ -1024,6 +1025,32 @@ test('searches Are.na publicly and parses blocks', async () => {
   assert.match(second.notes, /Are\.na block 13/u)
 
   for (const call of fetchImpl.calls) assert.equal(headerOf(call.init, 'authorization'), undefined)
+})
+
+test('does not let Are.na text blocks consume the image-block limit', async () => {
+  const fetchImpl = makeFetch({
+    [`${ARENA_ENDPOINT}?q=x&per=20`]: () =>
+      jsonResponse({
+        blocks: [
+          { id: 1, title: 'Text first', image: null },
+          { id: 2, image: { display: { url: 'https://cdn.arena.test/a.png' } } },
+          { id: 3, title: 'Text middle', image: null },
+          { id: 4, image: { display: { url: 'https://cdn.arena.test/b.png' } } },
+          { id: 5, image: { display: { url: 'https://cdn.arena.test/c.png' } } },
+        ],
+      }),
+    'https://cdn.arena.test/a.png': imageResponse(MINI_PNG),
+    'https://cdn.arena.test/b.png': imageResponse(MINI_JPEG, 'image/jpeg'),
+    'https://cdn.arena.test/c.png': imageResponse(MINI_PNG),
+  })
+  const { drafts, failures } = await discoverReferences(
+    { source: 'arena', query: 'x', limit: 2 },
+    { fetchImpl, lookupImpl: lookupPublic, endpoints: { arenaSearch: ARENA_ENDPOINT } },
+  )
+  assert.equal(drafts.length, 2)
+  assert.equal(failures.length, 0)
+  assert.deepEqual(drafts.map((draft) => draft.mediaType), ['image/png', 'image/jpeg'])
+  assert.equal(fetchImpl.calls.length, 3) // search + two images, no third image fetch
 })
 
 test('maps Are.na 429 and server errors', async () => {

@@ -1276,7 +1276,7 @@ function blockedSourceError() {
 function normalizeDiscoverInput(input) {
   if (!isPlainObject(input)) throw new SourceError('invalid-argument', 'Discover input must be an object.')
   const source = typeof input.source === 'string' ? input.source.trim().toLowerCase() : ''
-  if (!SOURCE_IDS.includes(source)) {
+  if (source !== 'mobbin' && source !== 'arena') {
     throw new SourceError('invalid-argument', 'source must be mobbin or arena.')
   }
   const query = typeof input.query === 'string' ? input.query.trim() : ''
@@ -1488,7 +1488,10 @@ async function discoverArena(request, transport, endpoints) {
 
   const drafts = []
   const failures = []
-  for (const block of body.blocks.slice(0, request.limit)) {
+  // Are.na's result list mixes image and text blocks. Only image blocks count
+  // against the requested limit; text blocks must not consume the quota.
+  const imageBlocks = body.blocks.filter((block) => arenaImageUrl(block).trim() !== '')
+  for (const block of imageBlocks.slice(0, request.limit)) {
     const label = arenaBlockLabel(block)
     try {
       drafts.push(await arenaDraft(block, transport))

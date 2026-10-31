@@ -39,6 +39,14 @@
 - README and the build contract document the new routes, actions and data file;
   the panel screenshot is refreshed and the dialog has its own screenshot.
 
+### Fixed
+
+- Are.na text blocks no longer consume the requested image-block limit; the
+  adapter now takes the first `limit` blocks that actually carry an image.
+- `discoverReferences` accepts only `mobbin` and `arena`; a `web` (or any other
+  catalog id) is rejected with `invalid-argument` before any request is made,
+  instead of silently falling through to an Are.na search.
+
 ## 0.2.11 — 2026-10-28
 
 ### Changed
