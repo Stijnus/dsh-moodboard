@@ -1,6 +1,6 @@
 {
   "name": "dsh-moodboard",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Visual reference moodboard for DeepSeek Harness: capture links, Mobbin and Are.na references, pin a style guide, and turn inspiration into your own UI components.",
   "license": "MIT",
   "type": "module",
@@ -19,7 +19,7 @@
     "locale/*.json",
     "icon.svg",
     "README.md",
-    "README.zh-CN.md",
+    "README-zh-CN.md",
     "CHANGELOG.md",
     "docs/CONTRACT.md",
     "docs/INSPIRATION-WORKFLOW.md"

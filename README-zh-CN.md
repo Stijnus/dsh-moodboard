@@ -1,6 +1,6 @@
 # dsh-moodboard · 视觉参考情绪板
 
-[English](./README.md) · [中文](./README.zh-CN.md)
+[English](./README.md) · [中文](./README-zh-CN.md)
 
 给智能体一份**视觉参考**：把截图和灵感图收进情绪板，打标签、写备注，固定出风格指南——智能体在生成或改版界面之前会先读这份指南。
 

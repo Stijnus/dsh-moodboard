@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.2 — 2026-10-31
+
+### Fixed
+
+- npm's README extraction selected `README.zh-CN.md` because both root READMEs
+  matched its lookup, so the package page showed the Chinese README without the
+  new screenshots. Rename the Chinese file to `README-zh-CN.md` (links stay
+  root-relative) so npm publishes `README.md` as the package README. The
+  English README with the live 0.4 panel, dialog and inspector captures is now
+  the one npm renders. Packaging/documentation fix only; no runtime or API
+  changes.
+
 ## 0.4.1 — 2026-10-31
 
 ### Changed

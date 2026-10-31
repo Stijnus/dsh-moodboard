@@ -1,6 +1,6 @@
 # dsh-moodboard
 
-[English](./README.md) · [中文](./README.zh-CN.md)
+[English](./README.md) · [中文](./README-zh-CN.md)
 
 [![npm version](https://img.shields.io/npm/v/dsh-moodboard.svg)](https://www.npmjs.com/package/dsh-moodboard)
 [![provenance: signed](https://img.shields.io/badge/provenance-signed-brightgreen)](https://www.npmjs.com/package/dsh-moodboard)
