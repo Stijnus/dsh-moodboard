@@ -1,0 +1,3 @@
+# Generated artifacts stay local; run capture.mjs to reproduce them.
+shots/*.png
+snapshots/

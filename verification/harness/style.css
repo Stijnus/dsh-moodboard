@@ -1,0 +1,145 @@
+/* ---------------------------------------------------------------------------
+   dsh-moodboard real-render harness — host theme tokens + canvas.
+
+   These are the real DSH alias token names the plugin's CSS consumes, with
+   representative light/dark values. The harness owns them only because it
+   renders outside the DSH shell; the plugin keeps reading the same aliases.
+--------------------------------------------------------------------------- */
+
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+
+  --dsw-alias-bg-base: #fafafa;
+  --dsw-alias-bg-layer-1: #ffffff;
+  --dsw-alias-bg-layer-2: #f5f5f7;
+  --dsw-alias-bg-overlay: rgba(28, 28, 30, 0.38);
+  --dsw-alias-label-primary: #1c1c1e;
+  --dsw-alias-label-secondary: #6e6e73;
+  --dsw-alias-label-tertiary: #8e8e93;
+  --dsw-alias-label-primary-inverted: #ffffff;
+  --dsw-alias-settings-card-stroke: #e5e5e7;
+  --dsw-alias-interactive-bg-hover: #f2f2f4;
+  --dsw-alias-border-l1: #e5e5e7;
+  --dsw-alias-border-l2: #d1d1d6;
+  --dsw-alias-brand-primary: #1c1c1e;
+  --dsw-alias-brand-secondary: #3a3a3c;
+  --dsw-alias-button-primary-fill: #1c1c1e;
+  --dsw-alias-button-primary-hover: #3a3a3c;
+  --dsw-alias-button-elevated-fill: #ffffff;
+  --dsw-alias-button-floating-fill: #ffffff;
+  --dsw-alias-button-floating-hover: #f2f2f4;
+  --dsw-alias-state-error-primary: #c0362c;
+  --dsw-alias-state-warn-primary: #b26a10;
+  --dsw-alias-state-success-primary: #2f7d4f;
+  --dsw-alias-state-idle-primary: #8e8e93;
+  --dsw-alias-link: #0a66c2;
+  --dsw-alias-toast-bg: #1c1c1e;
+  --dsw-alias-toast-label: #ffffff;
+  --dsw-specific-sidebar-fill: #f5f5f7;
+
+  --dsh-frame-top-clearance: 0px;
+  --harness-canvas: #fafafa;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --dsw-alias-bg-base: #111111;
+  --dsw-alias-bg-layer-1: #1a1a1c;
+  --dsw-alias-bg-layer-2: #232326;
+  --dsw-alias-bg-overlay: rgba(0, 0, 0, 0.55);
+  --dsw-alias-label-primary: #f5f5f7;
+  --dsw-alias-label-secondary: #a1a1a6;
+  --dsw-alias-label-tertiary: #6e6e73;
+  --dsw-alias-label-primary-inverted: #111111;
+  --dsw-alias-settings-card-stroke: #2e2e32;
+  --dsw-alias-interactive-bg-hover: #26262a;
+  --dsw-alias-border-l1: #2e2e32;
+  --dsw-alias-border-l2: #3a3a3f;
+  --dsw-alias-brand-primary: #f5f5f7;
+  --dsw-alias-brand-secondary: #d1d1d6;
+  --dsw-alias-button-primary-fill: #f5f5f7;
+  --dsw-alias-button-primary-hover: #e5e5e7;
+  --dsw-alias-button-elevated-fill: #232326;
+  --dsw-alias-button-floating-fill: #232326;
+  --dsw-alias-button-floating-hover: #2e2e32;
+  --dsw-alias-state-error-primary: #ff6b5e;
+  --dsw-alias-state-warn-primary: #e0a458;
+  --dsw-alias-state-success-primary: #5bbe8a;
+  --dsw-alias-state-idle-primary: #6e6e73;
+  --dsw-alias-link: #6cb4ff;
+  --dsw-alias-toast-bg: #f5f5f7;
+  --dsw-alias-toast-label: #111111;
+  --dsw-specific-sidebar-fill: #1a1a1c;
+
+  --dsh-frame-top-clearance: 0px;
+  --harness-canvas: #111111;
+}
+
+html,
+body {
+  box-sizing: border-box;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', system-ui, 'Helvetica Neue',
+    Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: inherit;
+}
+
+/* The harness renders the plugin's real `main` slot component at exactly the
+   capture size; no chrome of its own is drawn. */
+#app {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-base);
+}
+
+#app > .dsh-mb-page {
+  height: 100%;
+}
+
+/* Deterministic screenshots: no text selection paint, no scrollbars on the
+   capture surface (the page manages its own scroll regions). */
+#app ::selection {
+  background: transparent;
+}
+
+#app::-webkit-scrollbar,
+#app *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+#app *::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background-clip: content-box;
+  background-color: color-mix(in srgb, var(--dsw-alias-label-secondary) 40%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

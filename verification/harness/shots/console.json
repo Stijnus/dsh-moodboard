@@ -1,0 +1,982 @@
+{
+  "generatedAt": "2026-10-31T11:28:02.245Z",
+  "url": "http://127.0.0.1:4173/verification/harness/index.html",
+  "viewports": [
+    "1280x900",
+    "1024x768",
+    "768x900",
+    "390x844"
+  ],
+  "client": "http://127.0.0.1:4173/client.js",
+  "shots": [
+    {
+      "name": "01-page-light.png",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "02-empty-light.png",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "03-add-references.png",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "04-add-references-discover.png",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "05-inspector.png",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "06-shortcuts.png",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "07-tag-merge.png",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "08-page-dark.png",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "09-inspector-dark.png",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "10-add-references-dark.png",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "11-lightbox.png",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "12-bulk-selection.png",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "13-inspector-unpinned.png",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "14-inspector-dirty.png",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "15-import-links-typed.png",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "16-import-result.png",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "17-focus-ring.png",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "18-page-1024-light.png",
+      "width": 1024,
+      "height": 768
+    },
+    {
+      "name": "19-inspector-sheet-1024.png",
+      "width": 1024,
+      "height": 768
+    },
+    {
+      "name": "20-page-768-light.png",
+      "width": 768,
+      "height": 900
+    },
+    {
+      "name": "21-inspector-sheet-768.png",
+      "width": 768,
+      "height": 900
+    },
+    {
+      "name": "22-import-768-result.png",
+      "width": 768,
+      "height": 900
+    },
+    {
+      "name": "23-page-390-light.png",
+      "width": 390,
+      "height": 844
+    },
+    {
+      "name": "24-mobile-import.png",
+      "width": 390,
+      "height": 844
+    },
+    {
+      "name": "25-mobile-inspector-sheet.png",
+      "width": 390,
+      "height": 844
+    },
+    {
+      "name": "26-inspector-manage.png",
+      "width": 1280,
+      "height": 900
+    }
+  ],
+  "checks": [
+    {
+      "name": "page-light: gallery + hero + pinned badges",
+      "ok": true,
+      "snapshot": {
+        "cards": 6,
+        "chips": 16,
+        "pinnedBadges": 3,
+        "hero": true,
+        "bulk": false,
+        "lightbox": false,
+        "selectedCards": 0,
+        "inspector": false,
+        "inspectorTitle": null,
+        "dialogs": [],
+        "empty": false,
+        "loading": false,
+        "errors": []
+      }
+    },
+    {
+      "name": "empty-light: empty state, no gallery",
+      "ok": true,
+      "snapshot": {
+        "cards": 0,
+        "chips": 0,
+        "pinnedBadges": 0,
+        "hero": false,
+        "bulk": false,
+        "lightbox": false,
+        "selectedCards": 0,
+        "inspector": false,
+        "inspectorTitle": null,
+        "dialogs": [],
+        "empty": true,
+        "loading": false,
+        "errors": []
+      }
+    },
+    {
+      "name": "add-references dialog open",
+      "ok": true,
+      "snapshot": {
+        "cards": 6,
+        "chips": 16,
+        "pinnedBadges": 3,
+        "hero": true,
+        "bulk": false,
+        "lightbox": false,
+        "selectedCards": 0,
+        "inspector": false,
+        "inspectorTitle": null,
+        "dialogs": [
+          {
+            "title": "Add references",
+            "className": "dsh-mb-merge-dialog dsh-mb-import-dialog"
+          }
+        ],
+        "empty": false,
+        "loading": false,
+        "errors": []
+      }
+    },
+    {
+      "name": "inspector open with metadata",
+      "ok": true,
+      "snapshot": {
+        "cards": 6,
+        "chips": 16,
+        "pinnedBadges": 3,
+        "hero": true,
+        "bulk": false,
+        "lightbox": false,
+        "selectedCards": 1,
+        "inspector": true,
+        "inspectorTitle": "kastplan-cuberto-home-management.jpg",
+        "dialogs": [],
+        "empty": false,
+        "loading": false,
+        "errors": []
+      }
+    },
+    {
+      "name": "inspector: internal scroll body + reachable sticky footer",
+      "ok": true,
+      "snapshot": {
+        "footerVisible": true,
+        "bodyOverflowY": "auto",
+        "bodyScrolls": true
+      }
+    },
+    {
+      "name": "keyboard shortcuts dialog",
+      "ok": true,
+      "snapshot": {
+        "cards": 6,
+        "chips": 16,
+        "pinnedBadges": 3,
+        "hero": true,
+        "bulk": false,
+        "lightbox": false,
+        "selectedCards": 0,
+        "inspector": false,
+        "inspectorTitle": null,
+        "dialogs": [
+          {
+            "title": "Keyboard shortcuts",
+            "className": "dsh-mb-merge-dialog"
+          }
+        ],
+        "empty": false,
+        "loading": false,
+        "errors": []
+      }
+    },
+    {
+      "name": "tag merge dialog",
+      "ok": true,
+      "snapshot": {
+        "cards": 6,
+        "chips": 31,
+        "pinnedBadges": 3,
+        "hero": true,
+        "bulk": false,
+        "lightbox": false,
+        "selectedCards": 0,
+        "inspector": false,
+        "inspectorTitle": null,
+        "dialogs": [
+          {
+            "title": "Merge tags",
+            "className": "dsh-mb-merge-dialog"
+          }
+        ],
+        "empty": false,
+        "loading": false,
+        "errors": []
+      }
+    },
+    {
+      "name": "page-dark: gallery + hero",
+      "ok": true,
+      "snapshot": {
+        "cards": 6,
+        "chips": 16,
+        "pinnedBadges": 3,
+        "hero": true,
+        "bulk": false,
+        "lightbox": false,
+        "selectedCards": 0,
+        "inspector": false,
+        "inspectorTitle": null,
+        "dialogs": [],
+        "empty": false,
+        "loading": false,
+        "errors": []
+      }
+    },
+    {
+      "name": "lightbox preview open",
+      "ok": true,
+      "snapshot": {
+        "cards": 6,
+        "chips": 16,
+        "pinnedBadges": 3,
+        "hero": true,
+        "bulk": false,
+        "lightbox": true,
+        "selectedCards": 0,
+        "inspector": false,
+        "inspectorTitle": null,
+        "dialogs": [
+          {
+            "title": "Image preview kastplan-cuberto-home-management.jpg1 / 6",
+            "className": "dsh-mb-lightbox-dialog"
+          }
+        ],
+        "empty": false,
+        "loading": false,
+        "errors": []
+      }
+    },
+    {
+      "name": "bulk selection toolbar",
+      "ok": true,
+      "snapshot": {
+        "cards": 6,
+        "chips": 16,
+        "pinnedBadges": 3,
+        "hero": true,
+        "bulk": true,
+        "lightbox": false,
+        "selectedCards": 2,
+        "inspector": true,
+        "inspectorTitle": "kastplan-ultro-layout.jpg",
+        "dialogs": [],
+        "empty": false,
+        "loading": false,
+        "errors": []
+      }
+    },
+    {
+      "name": "inspector unpinned: no style-guide pill, switch off",
+      "ok": true,
+      "snapshot": {
+        "hasPill": false,
+        "switchChecked": "false",
+        "title": "harness-light-reference.png"
+      }
+    },
+    {
+      "name": "inspector pinned: coral style-guide pill + switch on",
+      "ok": true,
+      "snapshot": {
+        "hasPill": true,
+        "switchChecked": "true"
+      }
+    },
+    {
+      "name": "inspector dirty: coral Save enabled + unsaved marker",
+      "ok": true,
+      "snapshot": {
+        "saveDisabled": false,
+        "saveText": "Save",
+        "saveBackground": "rgb(196, 68, 26)",
+        "dirtyLabel": "Unsaved changes"
+      }
+    },
+    {
+      "name": "import typed: 3 / 20 counter, pin switch on",
+      "ok": true,
+      "snapshot": {
+        "countText": "3 / 20 links",
+        "pinChecked": "true",
+        "submitText": "Add references"
+      }
+    },
+    {
+      "name": "import result: Added / Already on board / Failed pills",
+      "ok": true,
+      "snapshot": {
+        "pills": [
+          "Added 1",
+          "Already on board 0",
+          "Failed 1"
+        ],
+        "failureLines": 1
+      }
+    },
+    {
+      "name": "keyboard focus ring visible in dialog",
+      "ok": true,
+      "snapshot": {
+        "tag": "INPUT",
+        "label": null,
+        "text": "",
+        "focusVisible": true,
+        "outline": "solid",
+        "outlineWidth": "2px",
+        "rect": {
+          "left": 321,
+          "top": 527,
+          "width": 548
+        }
+      }
+    },
+    {
+      "name": "import dialog: footer visible + body scrollable",
+      "ok": true,
+      "snapshot": {
+        "viewport": {
+          "width": 1280,
+          "height": 900
+        },
+        "dialog": {
+          "left": 300,
+          "top": 172,
+          "width": 680,
+          "height": 555,
+          "borderRadius": "22px"
+        },
+        "body": {
+          "clientHeight": 409,
+          "scrollHeight": 409,
+          "scrolls": false,
+          "overflowY": "auto"
+        },
+        "footer": {
+          "top": 660,
+          "bottom": 727,
+          "visible": true,
+          "position": "static"
+        }
+      }
+    },
+    {
+      "name": "Esc closes dialog and returns focus to opener",
+      "ok": true,
+      "snapshot": {
+        "dialogClosed": true,
+        "activeLabel": "Add from link",
+        "inHeader": true
+      }
+    },
+    {
+      "name": "1024x768: no horizontal overflow / clipped controls",
+      "ok": true,
+      "snapshot": {
+        "viewport": {
+          "width": 1024,
+          "height": 768
+        },
+        "documentOverflow": false,
+        "pageOverflow": false,
+        "pageWidth": 1024,
+        "clippedControls": []
+      }
+    },
+    {
+      "name": "1024x768: inspector becomes an in-viewport bottom sheet with footer",
+      "ok": true,
+      "snapshot": {
+        "sidePosition": "fixed",
+        "detailsTop": 96,
+        "detailsBottom": 756,
+        "viewportHeight": 768,
+        "withinViewport": true,
+        "footerVisible": true,
+        "left": 12,
+        "right": 1012
+      }
+    },
+    {
+      "name": "768x900: no horizontal overflow / clipped controls",
+      "ok": true,
+      "snapshot": {
+        "viewport": {
+          "width": 768,
+          "height": 900
+        },
+        "documentOverflow": false,
+        "pageOverflow": false,
+        "pageWidth": 768,
+        "clippedControls": []
+      }
+    },
+    {
+      "name": "768x900: inspector bottom sheet fits viewport with footer",
+      "ok": true,
+      "snapshot": {
+        "sidePosition": "fixed",
+        "top": 114,
+        "bottom": 888,
+        "viewportHeight": 900,
+        "withinViewport": true,
+        "footerVisible": true
+      }
+    },
+    {
+      "name": "768x900: import dialog footer visible, body scrolls internally",
+      "ok": true,
+      "snapshot": {
+        "viewport": {
+          "width": 768,
+          "height": 900
+        },
+        "dialog": {
+          "left": 44,
+          "top": 90,
+          "width": 680,
+          "height": 720,
+          "borderRadius": "22px"
+        },
+        "body": {
+          "clientHeight": 574,
+          "scrollHeight": 709,
+          "scrolls": true,
+          "overflowY": "auto"
+        },
+        "footer": {
+          "top": 742,
+          "bottom": 809,
+          "visible": true,
+          "position": "static"
+        }
+      }
+    },
+    {
+      "name": "390x844: no horizontal overflow / clipped controls",
+      "ok": true,
+      "snapshot": {
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "documentOverflow": false,
+        "pageOverflow": false,
+        "pageWidth": 390,
+        "clippedControls": []
+      }
+    },
+    {
+      "name": "390x844: import dialog is full-width, square, footer visible",
+      "ok": true,
+      "snapshot": {
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "dialog": {
+          "left": 0,
+          "top": 0,
+          "width": 390,
+          "height": 844,
+          "borderRadius": "0px"
+        },
+        "body": {
+          "clientHeight": 694,
+          "scrollHeight": 694,
+          "scrolls": false,
+          "overflowY": "auto"
+        },
+        "footer": {
+          "top": 781,
+          "bottom": 844,
+          "visible": true,
+          "position": "static"
+        }
+      }
+    },
+    {
+      "name": "390x844: inspector bottom sheet within viewport with footer",
+      "ok": true,
+      "snapshot": {
+        "sidePosition": "fixed",
+        "top": 106,
+        "bottom": 832,
+        "height": 726,
+        "viewportHeight": 844,
+        "withinViewport": true,
+        "footerVisible": true
+      }
+    },
+    {
+      "name": "inspector manage group: section labels, chevron pair, borderless Remove",
+      "ok": true,
+      "snapshot": {
+        "hasManage": true,
+        "hasMoveGroup": true,
+        "removeBorderColor": "rgba(0, 0, 0, 0)",
+        "removeBackground": "rgba(0, 0, 0, 0)",
+        "removeText": "Remove",
+        "labels": [
+          "Details",
+          "Metadata",
+          "Style guide",
+          "Manage"
+        ]
+      }
+    }
+  ],
+  "pageErrors": 0,
+  "consoleMessages": [],
+  "contrast": [
+    {
+      "id": "Primary CTA text on coral-600 fill",
+      "theme": "light",
+      "fg": {
+        "r": 255,
+        "g": 248,
+        "b": 242,
+        "a": 1
+      },
+      "bg": {
+        "r": 196,
+        "g": 68,
+        "b": 26,
+        "a": 1
+      },
+      "ratio": 4.77,
+      "threshold": 4.5,
+      "note": "body text 12.5px/600",
+      "pass": true
+    },
+    {
+      "id": "Active filter chip text on coral-600 fill",
+      "theme": "light",
+      "fg": {
+        "r": 255,
+        "g": 248,
+        "b": 242,
+        "a": 1
+      },
+      "bg": {
+        "r": 196,
+        "g": 68,
+        "b": 26,
+        "a": 1
+      },
+      "ratio": 4.77,
+      "threshold": 4.5,
+      "note": "body text 12px/600",
+      "pass": true
+    },
+    {
+      "id": "Style-guide pill text on coral-600 fill",
+      "theme": "light",
+      "fg": {
+        "r": 255,
+        "g": 248,
+        "b": 242,
+        "a": 1
+      },
+      "bg": {
+        "r": 196,
+        "g": 68,
+        "b": 26,
+        "a": 1
+      },
+      "ratio": 4.77,
+      "threshold": 4.5,
+      "note": "label 10.5px/650",
+      "pass": true
+    },
+    {
+      "id": "accent-ink mix on card",
+      "theme": "light",
+      "fg": {
+        "r": 85,
+        "g": 45,
+        "b": 36,
+        "a": 1
+      },
+      "bg": {
+        "r": 254,
+        "g": 252,
+        "b": 250,
+        "a": 1
+      },
+      "ratio": 11.48,
+      "threshold": 4.5,
+      "note": "label text (kicker/active tab)",
+      "pass": true
+    },
+    {
+      "id": "Inspector kicker on elevated card",
+      "theme": "light",
+      "fg": {
+        "r": 85,
+        "g": 45,
+        "b": 36,
+        "a": 1
+      },
+      "bg": {
+        "r": 254,
+        "g": 252,
+        "b": 251,
+        "a": 1
+      },
+      "ratio": 11.49,
+      "threshold": 4.5,
+      "note": "kicker 10px/650",
+      "pass": true
+    },
+    {
+      "id": "Section label on elevated card",
+      "theme": "light",
+      "fg": {
+        "r": 110,
+        "g": 110,
+        "b": 115,
+        "a": 1
+      },
+      "bg": {
+        "r": 254,
+        "g": 252,
+        "b": 251,
+        "a": 1
+      },
+      "ratio": 4.96,
+      "threshold": 4.5,
+      "note": "label 10px/650",
+      "pass": true
+    },
+    {
+      "id": "Secondary hint on canvas",
+      "theme": "light",
+      "fg": {
+        "r": 98,
+        "g": 98,
+        "b": 103,
+        "a": 1
+      },
+      "bg": {
+        "r": 237,
+        "g": 236,
+        "b": 234,
+        "a": 1
+      },
+      "ratio": 5.14,
+      "threshold": 4.5,
+      "note": "hint 12px/400",
+      "pass": true
+    },
+    {
+      "id": "Import footer hint on footer surface",
+      "theme": "light",
+      "fg": {
+        "r": 98,
+        "g": 98,
+        "b": 103,
+        "a": 1
+      },
+      "bg": {
+        "r": 242,
+        "g": 240,
+        "b": 238,
+        "a": 1
+      },
+      "ratio": 5.34,
+      "threshold": 4.5,
+      "note": "footer hint 12px/400",
+      "pass": true
+    },
+    {
+      "id": "Primary CTA text on coral-600 fill",
+      "theme": "dark",
+      "fg": {
+        "r": 255,
+        "g": 248,
+        "b": 242,
+        "a": 1
+      },
+      "bg": {
+        "r": 196,
+        "g": 68,
+        "b": 26,
+        "a": 1
+      },
+      "ratio": 4.77,
+      "threshold": 4.5,
+      "note": "body text 12.5px/600",
+      "pass": true
+    },
+    {
+      "id": "Active filter chip text on coral-600 fill",
+      "theme": "dark",
+      "fg": {
+        "r": 255,
+        "g": 248,
+        "b": 242,
+        "a": 1
+      },
+      "bg": {
+        "r": 196,
+        "g": 68,
+        "b": 26,
+        "a": 1
+      },
+      "ratio": 4.77,
+      "threshold": 4.5,
+      "note": "body text 12px/600",
+      "pass": true
+    },
+    {
+      "id": "Style-guide pill text on coral-600 fill",
+      "theme": "dark",
+      "fg": {
+        "r": 255,
+        "g": 248,
+        "b": 242,
+        "a": 1
+      },
+      "bg": {
+        "r": 196,
+        "g": 68,
+        "b": 26,
+        "a": 1
+      },
+      "ratio": 4.77,
+      "threshold": 4.5,
+      "note": "label 10.5px/650",
+      "pass": true
+    },
+    {
+      "id": "accent-ink mix on card",
+      "theme": "dark",
+      "fg": {
+        "r": 234,
+        "g": 184,
+        "b": 170,
+        "a": 1
+      },
+      "bg": {
+        "r": 31,
+        "g": 29,
+        "b": 30,
+        "a": 1
+      },
+      "ratio": 9.53,
+      "threshold": 4.5,
+      "note": "label text (kicker/active tab)",
+      "pass": true
+    },
+    {
+      "id": "Inspector kicker on elevated card",
+      "theme": "dark",
+      "fg": {
+        "r": 234,
+        "g": 184,
+        "b": 170,
+        "a": 1
+      },
+      "bg": {
+        "r": 49,
+        "g": 48,
+        "b": 49,
+        "a": 1
+      },
+      "ratio": 7.47,
+      "threshold": 4.5,
+      "note": "kicker 10px/650",
+      "pass": true
+    },
+    {
+      "id": "Section label on elevated card",
+      "theme": "dark",
+      "fg": {
+        "r": 161,
+        "g": 161,
+        "b": 166,
+        "a": 1
+      },
+      "bg": {
+        "r": 49,
+        "g": 48,
+        "b": 49,
+        "a": 1
+      },
+      "ratio": 5.11,
+      "threshold": 4.5,
+      "note": "label 10px/650",
+      "pass": true
+    },
+    {
+      "id": "Secondary hint on canvas",
+      "theme": "dark",
+      "fg": {
+        "r": 172,
+        "g": 172,
+        "b": 176,
+        "a": 1
+      },
+      "bg": {
+        "r": 19,
+        "g": 18,
+        "b": 17,
+        "a": 1
+      },
+      "ratio": 8.27,
+      "threshold": 4.5,
+      "note": "hint 12px/400",
+      "pass": true
+    },
+    {
+      "id": "Import footer hint on footer surface",
+      "theme": "dark",
+      "fg": {
+        "r": 172,
+        "g": 172,
+        "b": 176,
+        "a": 1
+      },
+      "bg": {
+        "r": 22,
+        "g": 21,
+        "b": 21,
+        "a": 1
+      },
+      "ratio": 8.06,
+      "threshold": 4.5,
+      "note": "footer hint 12px/400",
+      "pass": true
+    }
+  ],
+  "contrastFailures": 0,
+  "defects": [],
+  "dialogLayouts": {
+    "import768": {
+      "viewport": {
+        "width": 768,
+        "height": 900
+      },
+      "dialog": {
+        "left": 44,
+        "top": 90,
+        "width": 680,
+        "height": 720,
+        "borderRadius": "22px"
+      },
+      "body": {
+        "clientHeight": 574,
+        "scrollHeight": 709,
+        "scrolls": true,
+        "overflowY": "auto"
+      },
+      "footer": {
+        "top": 742,
+        "bottom": 809,
+        "visible": true,
+        "position": "static"
+      }
+    },
+    "mobileImport": {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "dialog": {
+        "left": 0,
+        "top": 0,
+        "width": 390,
+        "height": 844,
+        "borderRadius": "0px"
+      },
+      "body": {
+        "clientHeight": 694,
+        "scrollHeight": 694,
+        "scrolls": false,
+        "overflowY": "auto"
+      },
+      "footer": {
+        "top": 781,
+        "bottom": 844,
+        "visible": true,
+        "position": "static"
+      }
+    }
+  }
+}
