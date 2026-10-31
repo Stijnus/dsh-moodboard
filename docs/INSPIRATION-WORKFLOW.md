@@ -129,7 +129,7 @@ panel has a **Copy workflow** action.
 | Any public link | Host fetches the page and reads its Open Graph/Twitter preview image and metadata | None | No preview image → upload a screenshot. Sites behind bot protection (Dribbble, Behance, Land-book) fail with guidance. |
 | Direct image URL | Host downloads and stores the image | None | PNG/JPEG/WebP/GIF, max 12 MiB; SVG is not accepted. |
 | Mobbin | Official REST API: `POST https://api.mobbin.com/v1/screens/search` | `MOBBIN_API_KEY` (Team or Enterprise) in the environment or `<DSH_HOME>/moodboard/sources.json` | 60 requests/min; image URLs expire, so the plugin downloads them immediately into the attachment store. |
-| Are.na | Public search API: `GET https://api.are.na/v2/search` | None | Public blocks only; first 12 results per import. |
+| Are.na | Public search API: `GET https://api.are.na/v2/search` | None | Public blocks only; the first 12 **image** blocks per import (text blocks are skipped and do not consume the quota). |
 | Dribbble | No public search API; shot pages block server fetches (Cloudflare). Use a browser MCP or upload the image. | Browser MCP (optional) | Do not scrape; respect Dribbble's terms. |
 | Pinterest / Behance / Land-book | Mostly OAuth-only or bot-protected | Not built in | Generic link capture when the site allows it; otherwise a screenshot. |
 
@@ -235,3 +235,8 @@ libraries. Do not commit cookies or API keys.
   dependency-free host, and browser capture belongs to a browser MCP.
 - Imported images are normalized by the attachment service (WebP/JPEG), so the
   stored file may not match the source encoding. Source URLs and notes are kept.
+- Are.na search results mix text and image blocks. Only image blocks count
+  toward the requested result limit; text blocks are skipped rather than
+  imported as `no-preview-image` failures. A discovery `source` must be
+  `mobbin` or `arena`; any other id is rejected with `invalid-argument` before
+  any network request.

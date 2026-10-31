@@ -100,7 +100,12 @@ The panel's **Add from link** dialog has two intakes:
 - **Discover** — search **Mobbin** screens (official REST API, Team/Enterprise
   key) or **Are.na** (public, no key) and add the results in one action. Mobbin
   image URLs expire, so the plugin downloads the bytes immediately; source
-  links and app names are preserved as tags/notes.
+  links and app names are preserved as tags/notes. Discovery accepts only
+  `mobbin` and `arena` as the source; other ids are rejected with
+  `invalid-argument` before any request. Are.na search returns a mixed
+  text/image result list, so only image blocks count toward the requested
+  number of results — text blocks are skipped, not counted and not reported as
+  failures.
 
 ![Add from link dialog: From links and Discover modes, Mobbin setup hint, tags and pin toggle](https://raw.githubusercontent.com/Stijnus/dsh-moodboard/main/docs/import-dialog.jpg)
 
@@ -256,6 +261,9 @@ light/dark switching. Image thumbnails are the user's own artwork.
 - Imports: up to 20 links/paths per call, 12 discoveries per call; remote pages
   are capped at 4 MiB and remote images at 12 MiB; only http(s) URLs, with
   private/loopback hosts blocked.
+- Are.na discovery counts only image blocks toward the requested result limit
+  (text blocks are skipped); `source` is limited to `mobbin` or `arena`, and
+  any other value fails with `invalid-argument` before a request is made.
 - The HTTP endpoints are owner-authenticated for same-origin/browser callers.
   A bash/curl caller has no session cookie — use the `moodboard` tool instead.
 
