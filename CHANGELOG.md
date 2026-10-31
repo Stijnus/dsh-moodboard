@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased — Warm Sand Studio UI
+
+### Changed
+
+- **Panel redesign.** The client UI now uses a warm sand canvas, white cards,
+  one coral accent, deep warm ink, 18px cards / 22px dialogs / 12px inputs and
+  pill controls, translated from the pinned style guide into the harness theme
+  tokens. Light and dark both derive from `--dsw-alias-*`, so the host chrome is
+  untouched and no theme hook is needed. See `docs/UI-REDESIGN.md`.
+- **Add references dialog.** New graded header (coral link badge, subtitle),
+  icon segmented tabs, live `n / 20` link counter, a proper pin setting row with
+  explanation, and a sticky footer with `Close` plus the right-most coral
+  primary. Discover and result states share the same surface; the dialog grows
+  to 680px / 88vh so the pin row is visible without scrolling.
+- **Reference inspector.** Kicker row with a solid coral style-guide pill,
+  16:10 preview, section labels with trailing rules (Details, Metadata, Style
+  guide, Manage), copy/paste metadata actions with icons, a grouped move pair,
+  borderless Remove, and a sticky footer whose disabled Save reads as inactive
+  rather than broken.
+- **Panel surfaces.** Header mark, active-style-guide hero, toolbar (search and
+  filter chips now share one row), gallery cards, tag chips, empty state,
+  lightbox, tag-merge dialog and bulk bar all share the new tokens; reduced
+  motion, focus rings and contrast were checked (coral-600 text on white is
+  5.0:1).
+- New en/zh strings for the dialog subtitle, link counter, pin hint, inspector
+  section labels, style-guide badge and pin hint; key parity is covered by the
+  existing locale test.
+- Verification: a real-render harness under `verification/harness/` executes
+  the actual `client.js` under a stubbed host and captures light/dark page,
+  dialog, inspector and dialog states; `verification/redesign/` holds the
+  standalone Warm Sand Studio preview used to steer the design.
+
+
 ## 0.3.1 — 2026-10-31
 
 ### Changed

@@ -284,6 +284,15 @@ window.__ModuleLoader__.load({
 
         addFromLink: 'Add from link',
         importTitle: 'Add references',
+        importSubtitle: 'Paste public links, or search Mobbin and Are.na.',
+        importLinkCount: '{count} / {max} links',
+        importPinHint: 'Pinned references become the active style guide.',
+        pinSwitchHint: 'The agent reads these pinned images before designing UI.',
+        styleGuideBadge: 'Style guide',
+        sectionDetails: 'Details',
+        sectionStyleGuide: 'Style guide',
+        sectionManage: 'Manage',
+        metadataLabel: 'Metadata',
         importClose: 'Close import dialog',
         importModeLabel: 'Import mode',
         importTabLink: 'From links',
@@ -326,7 +335,7 @@ window.__ModuleLoader__.load({
         importWorkflowCopied: 'Workflow copied to the clipboard',
         importWorkflowUnavailable: 'The workflow text is not available yet.',
         importWorkflowCopyFailed: 'Could not copy the workflow: {message}',
-        importDone: 'Done',
+        importDone: 'Close',
       },
       zh: {
         panel: '灵感板',
@@ -544,6 +553,15 @@ window.__ModuleLoader__.load({
 
         addFromLink: '从链接添加',
         importTitle: '添加参考图',
+        importSubtitle: '粘贴公开链接，或搜索 Mobbin 与 Are.na。',
+        importLinkCount: '{count} / {max} 个链接',
+        importPinHint: '钉选后，导入的参考图会成为当前风格指南。',
+        pinSwitchHint: '代理在设计界面之前会读取这些已钉选的图片。',
+        styleGuideBadge: '风格指南',
+        sectionDetails: '详情',
+        sectionStyleGuide: '风格指南',
+        sectionManage: '管理',
+        metadataLabel: '元数据',
         importClose: '关闭导入对话框',
         importModeLabel: '导入方式',
         importTabLink: '从链接',
@@ -586,7 +604,7 @@ window.__ModuleLoader__.load({
         importWorkflowCopied: '工作流已复制到剪贴板',
         importWorkflowUnavailable: '工作流文本尚不可用。',
         importWorkflowCopyFailed: '无法复制工作流：{message}',
-        importDone: '完成',
+        importDone: '关闭',
       },
     }
 
@@ -1935,38 +1953,65 @@ window.__ModuleLoader__.load({
 
     const PAGE_CSS = `
 .dsh-mb-page {
-  /* Harness-native palette: every surface, border, text and action colour
-     comes from DSH theme tokens. The only custom accent is a low-saturation
-     warm tint derived from the harness warning token, used sparingly on the
-     style-guide surface and pinned affordances. */
-  --mb-accent: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 72%, var(--dsw-alias-label-primary));
-  --mb-r-sm: 10px;
-  --mb-r-md: 14px;
-  --mb-r-lg: 20px;
+  /* Warm Sand Studio. The pinned style guide (warm sand canvas, white cards,
+     one coral accent, deep warm ink) is translated into this plugin's own
+     tokens: every background is re-mixed from the harness theme tokens, so
+     light and dark both stay readable, while only the brand accent is fixed.
+     The host chrome outside the page is untouched. */
+  --mb-font: 'SF Pro Rounded', ui-rounded, 'Avenir Next', 'Nunito', 'Segoe UI Variable Display', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mb-coral-500: #e85d2a;
+  --mb-coral-600: #c4441a;
+  --mb-coral-700: #a83814;
+  --mb-coral-wash: #fbe7de;
+  --mb-canvas: color-mix(in oklab, var(--dsw-alias-bg-base) 94%, #3a2412 6%);
+  --mb-card: color-mix(in oklab, var(--dsw-alias-bg-layer-1) 97%, #d9a15c 3%);
+  --mb-elevated: color-mix(in oklab, var(--mb-card) 90%, #ffffff 10%);
+  --mb-accent: var(--mb-coral-600);
+  --mb-r-sm: 12px;
+  --mb-r-md: 18px;
+  --mb-r-lg: 22px;
   --mb-ease: cubic-bezier(0.22, 0.68, 0.24, 1);
-  --mb-surface: var(--dsw-alias-bg-layer-1);
-  --mb-surface-2: var(--dsw-alias-bg-layer-2);
-  --mb-line: var(--dsw-alias-settings-card-stroke);
-  --mb-line-strong: color-mix(in srgb, var(--dsw-alias-label-tertiary) 62%, transparent);
-  --mb-warm-wash: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 5%, var(--dsw-alias-bg-layer-1));
-  --mb-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.05), 0 2px 10px -4px rgba(0, 0, 0, 0.08);
-  --mb-shadow-2: 0 2px 6px rgba(0, 0, 0, 0.06), 0 16px 34px -20px rgba(0, 0, 0, 0.24);
+  --mb-surface: var(--mb-card);
+  --mb-surface-2: color-mix(in oklab, var(--mb-canvas) 94%, #c98b4b 6%);
+  --mb-line: color-mix(in oklab, var(--dsw-alias-label-primary) 11%, var(--mb-canvas));
+  --mb-line-strong: color-mix(in oklab, var(--dsw-alias-label-primary) 20%, var(--mb-canvas));
+  --mb-warm-wash: color-mix(in oklab, var(--mb-canvas) 92%, var(--mb-coral-500) 8%);
+  --mb-ambient: color-mix(in oklab, var(--mb-canvas) 86%, #c98b4b 14%);
+  --mb-ink-2: color-mix(in oklab, var(--dsw-alias-label-secondary) 87%, var(--dsw-alias-label-primary) 13%);
+  --mb-shadow-1: 0 1px 2px rgba(74, 48, 24, 0.06), 0 10px 24px -18px rgba(74, 48, 24, 0.28);
+  --mb-shadow-2: 0 2px 6px rgba(74, 48, 24, 0.08), 0 22px 48px -26px rgba(74, 48, 24, 0.36);
+  --mb-shadow-coral: 0 10px 22px -14px color-mix(in oklab, var(--mb-coral-600) 55%, transparent);
+
+  /* One fixed accent is safe in both themes as long as the text on it stays
+     fixed too: coral-600 with #fff8f2 keeps ~5:1 in light and dark. */
+  --dsw-alias-brand-primary: var(--mb-coral-600);
+  --dsw-alias-button-primary-fill: var(--mb-coral-600);
+  --dsw-alias-button-primary-hover: var(--mb-coral-700);
+  --dsw-alias-label-primary-inverted: #fff8f2;
 
   position: relative;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   height: 100%;
   min-height: 0;
   padding: 0 clamp(16px, 3vw, 34px) 20px;
   overflow: hidden;
-  background: var(--dsw-alias-bg-base);
+  background: var(--mb-canvas);
   color: var(--dsw-alias-label-primary);
-  font-size: 13px;
+  font-family: var(--mb-font);
+  font-size: 13.5px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
+.dsh-mb-page :is(button, input, textarea, select) { font-family: inherit; }
+.dsh-mb-page .dsh-mb-hint,
+.dsh-mb-page .dsh-mb-hero-hint { color: var(--mb-ink-2); }
+.dsh-mb-page .dsh-mb-input::placeholder,
+.dsh-mb-page .dsh-mb-textarea::placeholder { color: var(--mb-ink-2); opacity: 0.85; }
+.dsh-mb-page ::selection { background: color-mix(in oklab, var(--mb-coral-500) 28%, transparent); }
 
 /* ---------------------------------------------------------------- header */
 
@@ -2143,7 +2188,7 @@ window.__ModuleLoader__.load({
 .dsh-mb-input:hover, .dsh-mb-textarea:hover { border-color: var(--mb-line-strong); }
 .dsh-mb-input:focus, .dsh-mb-textarea:focus { outline: none; border-color: var(--dsw-alias-brand-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-brand-primary) 14%, transparent); background: var(--mb-surface); }
 .dsh-mb-textarea { min-height: 92px; height: auto; padding: 9px 10px; resize: vertical; line-height: 1.55; }
-.dsh-mb-input::placeholder, .dsh-mb-textarea::placeholder { color: var(--dsw-alias-label-secondary); opacity: 0.72; }
+.dsh-mb-input::placeholder, .dsh-mb-textarea::placeholder { color: var(--dsw-alias-label-secondary); opacity: 0.82; }
 .dsh-mb-tag-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .dsh-mb-tag-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 9px; border: 1px solid var(--mb-line); border-radius: 999px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font-size: 11.5px; }
 .dsh-mb-tag-remove { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; }
@@ -2252,6 +2297,474 @@ window.__ModuleLoader__.load({
 .dsh-mb-import-failures { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .dsh-mb-import-failure { overflow-wrap: anywhere; }
 .dsh-mb-import-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+/* ================================================================== warm */
+
+/* Warm Sand Studio theme layer. Rules here restate the base components with
+   the warm tokens above; they sit before the responsive queries so mobile
+   overrides still win. */
+
+.dsh-mb-page {
+  --mb-accent-ink: color-mix(in oklab, var(--dsw-alias-label-primary) 64%, var(--mb-coral-600) 36%);
+  --mb-accent-soft: color-mix(in oklab, var(--mb-canvas) 86%, var(--mb-coral-500) 14%);
+}
+
+/* ---------------------------------------------------------------- header */
+
+.dsh-mb-head { gap: 13px; }
+.dsh-mb-head-icon {
+  width: 44px; height: 44px; border-radius: 15px; border-color: transparent;
+  background: linear-gradient(150deg, var(--mb-coral-500), var(--mb-coral-600) 66%);
+  color: #fff8f2;
+  box-shadow: var(--mb-shadow-coral), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+.dsh-mb-head-text { gap: 5px; }
+.dsh-mb-title { font-size: 26px; font-weight: 700; letter-spacing: -0.024em; }
+.dsh-mb-meta { gap: 7px; }
+.dsh-mb-meta-pill {
+  height: 24px; padding: 0 10px; border-color: var(--mb-line);
+  background: var(--mb-card); font-size: 11.5px; font-weight: 600; letter-spacing: 0.005em;
+}
+.dsh-mb-meta-pill--amber {
+  border-color: color-mix(in oklab, var(--mb-coral-500) 30%, var(--mb-line));
+  background: var(--mb-accent-soft);
+}
+.dsh-mb-meta-pill--amber svg { color: var(--mb-coral-500); }
+
+/* --------------------------------------------------------------- buttons */
+
+.dsh-mb-btn {
+  height: 38px; padding: 0 16px; gap: 7px; border-radius: 999px;
+  border-color: var(--mb-line); background: var(--mb-card);
+  font-size: 13px; font-weight: 600; letter-spacing: -0.004em;
+}
+.dsh-mb-btn:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--dsw-alias-label-primary) 17%, var(--mb-canvas));
+  background: var(--mb-ambient);
+}
+.dsh-mb-btn--primary {
+  border-color: transparent; background: var(--mb-coral-600); color: #fff8f2;
+  box-shadow: var(--mb-shadow-coral);
+}
+.dsh-mb-btn--primary:hover:not(:disabled) {
+  border-color: transparent; background: var(--mb-coral-700);
+  box-shadow: 0 12px 26px -12px color-mix(in oklab, var(--mb-coral-700) 62%, transparent);
+}
+.dsh-mb-btn--ghost { border-color: transparent; background: transparent; }
+.dsh-mb-btn--ghost:hover:not(:disabled) { border-color: transparent; background: var(--mb-ambient); }
+.dsh-mb-btn--icon { width: 36px; padding: 0; }
+.dsh-mb-btn--icon.dsh-mb-btn--small { width: 30px; }
+.dsh-mb-btn--small { height: 30px; padding: 0 12px; font-size: 12px; }
+.dsh-mb-btn--danger { color: var(--dsw-alias-state-error-primary); }
+.dsh-mb-btn--danger:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--dsw-alias-state-error-primary) 34%, transparent);
+  background: color-mix(in oklab, var(--mb-canvas) 88%, var(--dsw-alias-state-error-primary) 12%);
+}
+.dsh-mb-btn--primary:disabled {
+  opacity: 1; border: 1px solid var(--mb-line); background: var(--mb-surface-2);
+  color: var(--dsw-alias-label-secondary); box-shadow: none;
+}
+
+/* ---------------------------------------------------------- banners/uploads */
+
+.dsh-mb-banner {
+  border-color: color-mix(in oklab, var(--dsw-alias-state-error-primary) 30%, transparent);
+  background: color-mix(in oklab, var(--mb-canvas) 90%, var(--dsw-alias-state-error-primary) 10%);
+  border-radius: 14px;
+}
+
+/* ------------------------------------------------------- style guide hero */
+
+.dsh-mb-hero {
+  padding: 16px 18px 17px; border-radius: 20px; border-color: var(--mb-line);
+  background: linear-gradient(180deg, var(--mb-accent-soft), var(--mb-card) 62%);
+  box-shadow: var(--mb-shadow-1);
+}
+.dsh-mb-hero::after {
+  background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--mb-coral-500) 44%, transparent), transparent);
+  opacity: 0.8;
+}
+.dsh-mb-hero-title { font-size: 16px; font-weight: 650; letter-spacing: -0.014em; }
+.dsh-mb-hero-icon {
+  width: 30px; height: 30px; border-radius: 10px; border-color: transparent;
+  background: var(--mb-coral-600); color: #fff8f2;
+}
+.dsh-mb-hero-badge { height: 24px; background: var(--mb-card); border-color: var(--mb-line); }
+.dsh-mb-hero-badge svg { color: var(--mb-coral-500); }
+.dsh-mb-hero-hint { font-size: 12.5px; }
+.dsh-mb-hero-empty { border-radius: 14px; border-color: var(--mb-line-strong); background: color-mix(in oklab, var(--mb-card) 82%, transparent); }
+.dsh-mb-hero-empty svg { color: var(--mb-coral-500); }
+.dsh-mb-active { padding: 2px 2px 8px; gap: 12px; }
+.dsh-mb-active-item { flex-basis: 156px; }
+.dsh-mb-active-thumb { border-radius: 14px; border-color: var(--mb-line); background: var(--mb-surface-2); }
+.dsh-mb-active-name { font-size: 12px; font-weight: 500; }
+
+/* --------------------------------------------------------------- toolbar */
+
+.dsh-mb-toolbar {
+  padding: 10px 6px 11px; border-bottom-color: var(--mb-line);
+  background: color-mix(in oklab, var(--mb-canvas) 86%, transparent);
+}
+.dsh-mb-search { flex: 0 1 300px; max-width: 360px; min-width: 180px; }
+.dsh-mb-filters { flex: 1 1 0; }
+.dsh-mb-search-input {
+  height: 38px; padding: 0 32px 0 34px; border-radius: 999px;
+  border-color: var(--mb-line); background: var(--mb-card); font-size: 13px;
+}
+.dsh-mb-search-icon { left: 12px; opacity: 0.62; }
+.dsh-mb-chip {
+  height: 32px; padding: 0 13px; border-radius: 999px; border-color: var(--mb-line);
+  background: var(--mb-card); font-size: 12px; font-weight: 600;
+}
+.dsh-mb-chip:hover { border-color: var(--mb-line-strong); background: var(--mb-ambient); }
+.dsh-mb-chip[aria-pressed='true'] {
+  border-color: transparent; background: var(--mb-coral-600); color: #fff8f2;
+  box-shadow: 0 6px 14px -8px color-mix(in oklab, var(--mb-coral-600) 68%, transparent);
+}
+.dsh-mb-chip[aria-pressed='true'] .dsh-mb-chip-count { color: color-mix(in oklab, #fff8f2 84%, transparent); opacity: 1; }
+.dsh-mb-chip--action { border-style: dashed; background: transparent; }
+
+/* ------------------------------------------------------------------ grid */
+
+.dsh-mb-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
+.dsh-mb-card { border-radius: 18px; border-color: var(--mb-line); box-shadow: var(--mb-shadow-1); }
+.dsh-mb-card:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in oklab, var(--dsw-alias-label-primary) 17%, var(--mb-canvas));
+  box-shadow: var(--mb-shadow-2);
+}
+.dsh-mb-card[data-selected='true'] {
+  border-color: var(--mb-coral-500);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--mb-coral-500) 22%, transparent), var(--mb-shadow-2);
+}
+.dsh-mb-card-meta { padding: 11px 13px 12px; gap: 7px; }
+.dsh-mb-card-name { font-size: 13px; font-weight: 600; letter-spacing: -0.006em; }
+.dsh-mb-card-check { background: var(--mb-coral-600); }
+.dsh-mb-tag {
+  padding: 3px 8px; background: var(--mb-accent-soft);
+  color: var(--dsw-alias-label-secondary); font-size: 10.5px; font-weight: 500;
+}
+.dsh-mb-pin-badge {
+  border-color: color-mix(in oklab, var(--mb-coral-500) 28%, var(--mb-line));
+  background: color-mix(in oklab, var(--mb-canvas) 78%, var(--mb-coral-500) 22%);
+  color: var(--dsw-alias-label-primary); font-weight: 600;
+}
+.dsh-mb-pin-badge svg { color: var(--mb-coral-500); }
+.dsh-mb-card-actions {
+  border-radius: 999px; border-color: var(--mb-line);
+  background: color-mix(in oklab, var(--mb-card) 90%, transparent);
+}
+.dsh-mb-confirm { background: color-mix(in oklab, var(--mb-canvas) 90%, var(--dsw-alias-state-error-primary) 10%); }
+.dsh-mb-drop-end { border-color: var(--mb-coral-500); background: var(--mb-accent-soft); border-radius: 18px; }
+
+/* ----------------------------------------------------------------- empty */
+
+.dsh-mb-empty {
+  border-radius: 22px;
+  border-color: color-mix(in oklab, var(--mb-coral-500) 22%, var(--mb-line));
+  background: radial-gradient(120% 130% at 50% 0%, var(--mb-accent-soft), transparent 62%), var(--mb-card);
+}
+.dsh-mb-empty-icon {
+  width: 68px; height: 68px; border-radius: 22px;
+  background: linear-gradient(150deg, var(--mb-coral-500), var(--mb-coral-600) 66%);
+  color: #fff8f2; box-shadow: var(--mb-shadow-coral);
+}
+.dsh-mb-empty-title { font-size: 21px; letter-spacing: -0.02em; }
+.dsh-mb-empty-body { font-size: 13.5px; }
+.dsh-mb-skeleton { border-radius: 18px; }
+
+/* ------------------------------------------------------------- inspector */
+
+.dsh-mb-details { border-radius: 22px; border-color: var(--mb-line); background: var(--mb-elevated); }
+.dsh-mb-details-head {
+  padding: 15px 16px 14px; padding-right: 12px; gap: 10px;
+  border-bottom: 1px solid var(--mb-line);
+  background: linear-gradient(180deg, var(--mb-accent-soft), var(--mb-elevated) 100%);
+}
+.dsh-mb-details-kicker {
+  font-size: 10px; font-weight: 650; letter-spacing: 0.1em;
+  color: var(--mb-accent-ink);
+}
+.dsh-mb-details-title { font-size: 16px; font-weight: 650; letter-spacing: -0.014em; line-height: 22px; }
+.dsh-mb-details-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.dsh-mb-details-pill {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  height: 23px; padding: 0 10px; border: 1px solid transparent;
+  border-radius: 999px; background: var(--mb-coral-600);
+  color: #fff8f2; font-size: 10.5px; font-weight: 650; white-space: nowrap;
+  box-shadow: var(--mb-shadow-coral);
+}
+.dsh-mb-details-pill svg { color: #fff8f2; }
+.dsh-mb-details-body { gap: 18px; padding: 16px; }
+.dsh-mb-details-foot {
+  gap: 8px; padding: 12px 16px;
+  border-top: 1px solid var(--mb-line);
+  background: color-mix(in oklab, var(--mb-canvas) 72%, var(--mb-card) 28%);
+}
+.dsh-mb-details-section { gap: 9px; }
+.dsh-mb-details-section-label {
+  display: flex; align-items: center; gap: 10px;
+  color: var(--dsw-alias-label-secondary); font-size: 10px; font-weight: 650;
+  letter-spacing: 0.09em; text-transform: uppercase;
+}
+.dsh-mb-details-section-label::after {
+  content: ''; flex: 1 1 auto; height: 1px; background: var(--mb-line);
+}
+.dsh-mb-details-manage {
+  gap: 10px; margin-top: auto; padding-top: 14px;
+}
+.dsh-mb-details-actions { gap: 6px; }
+.dsh-mb-details-actions .dsh-mb-btn { height: 32px; padding: 0 12px; font-size: 12px; }
+.dsh-mb-details-actions .dsh-mb-btn--icon { width: 32px; padding: 0; }
+.dsh-mb-details-actions .dsh-mb-btn--danger {
+  border-color: transparent; background: transparent; padding: 0 10px;
+}
+.dsh-mb-details-actions .dsh-mb-btn--danger:hover:not(:disabled) {
+  border-color: transparent; background: color-mix(in oklab, var(--mb-canvas) 88%, var(--dsw-alias-state-error-primary) 12%);
+}
+.dsh-mb-move-group {
+  display: inline-flex; align-items: center; gap: 2px; padding: 2px;
+  border: 1px solid var(--mb-line); border-radius: 999px; background: var(--mb-card);
+}
+.dsh-mb-move-group .dsh-mb-btn {
+  height: 28px; width: 28px; padding: 0; border-color: transparent; background: transparent;
+}
+.dsh-mb-move-group .dsh-mb-btn:hover:not(:disabled) { border-color: transparent; background: var(--mb-ambient); }
+.dsh-mb-preview {
+  border-radius: 16px; border-color: var(--mb-line); background: var(--mb-surface-2);
+  aspect-ratio: 16 / 10;
+}
+.dsh-mb-preview img {
+  width: 100%; height: 100%; max-height: none; object-fit: contain;
+}
+.dsh-mb-preview .dsh-mb-thumb-placeholder { height: 100%; }
+
+/* ----------------------------------------------------------- form fields */
+
+.dsh-mb-field { gap: 7px; }
+.dsh-mb-label { font-size: 12px; font-weight: 600; letter-spacing: 0.005em; }
+.dsh-mb-input, .dsh-mb-textarea {
+  height: 40px; padding: 8px 12px; border-radius: 12px;
+  border-color: var(--mb-line-strong); background: var(--mb-card); font-size: 13px;
+}
+.dsh-mb-textarea { min-height: 96px; padding: 10px 12px; line-height: 1.55; }
+.dsh-mb-input:hover, .dsh-mb-textarea:hover {
+  border-color: color-mix(in oklab, var(--dsw-alias-label-primary) 27%, var(--mb-canvas));
+}
+.dsh-mb-input:focus, .dsh-mb-textarea:focus {
+  border-color: var(--mb-coral-500); background: var(--mb-card);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--mb-coral-500) 18%, transparent);
+}
+.dsh-mb-tag-chip {
+  padding: 4px 5px 4px 10px; border-color: var(--mb-line);
+  background: var(--mb-accent-soft); font-weight: 500;
+}
+.dsh-mb-tag-remove { width: 19px; height: 19px; }
+.dsh-mb-tag-add { gap: 8px; margin-top: 0; }
+.dsh-mb-tag-add .dsh-mb-btn { height: 40px; }
+
+/* -------------------------------------------------------------- switches */
+
+.dsh-mb-switch {
+  gap: 11px; padding: 11px 12px; border-radius: 14px;
+  border-color: var(--mb-line); background: var(--mb-card);
+}
+.dsh-mb-switch:hover { border-color: var(--mb-line-strong); background: var(--mb-card); }
+.dsh-mb-switch-icon {
+  display: grid; place-items: center; flex: none; width: 30px; height: 30px;
+  border-radius: 10px; background: var(--mb-accent-soft); color: var(--mb-coral-500);
+}
+.dsh-mb-switch-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dsh-mb-switch-title { font-size: 12.5px; font-weight: 600; line-height: 1.35; }
+.dsh-mb-switch-hint {
+  color: var(--dsw-alias-label-secondary); font-size: 11.5px; line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.dsh-mb-switch-track {
+  width: 44px; height: 26px; margin-left: auto;
+  border-color: color-mix(in oklab, var(--dsw-alias-label-primary) 22%, var(--mb-canvas));
+  background: color-mix(in oklab, var(--mb-canvas) 76%, var(--dsw-alias-label-primary) 24%);
+}
+.dsh-mb-switch-knob {
+  top: 3px; left: 3px; width: 18px; height: 18px; background: #fff;
+  box-shadow: 0 1px 3px rgba(42, 26, 12, 0.28);
+}
+.dsh-mb-switch[aria-checked='true'] {
+  border-color: color-mix(in oklab, var(--mb-coral-500) 34%, var(--mb-line));
+  background: var(--mb-accent-soft);
+}
+.dsh-mb-switch[aria-checked='true'] .dsh-mb-switch-track {
+  background: var(--mb-coral-600); border-color: transparent;
+}
+.dsh-mb-switch[aria-checked='true'] .dsh-mb-switch-knob { transform: translateX(18px); background: #fff8f2; }
+.dsh-mb-dirty { font-size: 11.5px; font-weight: 500; }
+.dsh-mb-saved { font-size: 11.5px; font-weight: 500; }
+.dsh-mb-link {
+  color: var(--mb-accent-ink); font-weight: 600;
+  text-decoration-color: color-mix(in oklab, currentColor 46%, transparent);
+}
+.dsh-mb-pending { border-radius: 14px; }
+.dsh-mb-pending-actions .dsh-mb-btn { height: 32px; font-size: 12px; }
+
+/* --------------------------------------------------------------- overlays */
+
+.dsh-mb-lightbox {
+  background: color-mix(in oklab, #2a1b10 68%, transparent);
+}
+.dsh-mb-lightbox-dialog {
+  border-radius: 22px; border-color: var(--mb-line); background: var(--mb-elevated);
+  box-shadow: 0 48px 120px -40px rgba(42, 26, 12, 0.62), 0 2px 10px rgba(42, 26, 12, 0.14);
+}
+.dsh-mb-lightbox-head { padding: 14px 18px; border-bottom-color: var(--mb-line); }
+.dsh-mb-lightbox-title { font-size: 15px; font-weight: 650; }
+.dsh-mb-lightbox-counter { background: var(--mb-accent-soft); color: var(--mb-accent-ink); font-weight: 600; }
+.dsh-mb-lightbox-body { padding: 14px 18px 16px; border-top-color: var(--mb-line); }
+.dsh-mb-lightbox-nav { border-color: var(--mb-line); background: color-mix(in oklab, var(--mb-card) 86%, transparent); }
+.dsh-mb-bulk {
+  border-color: color-mix(in oklab, var(--mb-coral-500) 24%, transparent);
+  background: color-mix(in oklab, #241812 94%, var(--mb-coral-500) 6%);
+}
+
+/* ---------------------------------------------------------------- dialogs */
+
+.dsh-mb-merge-overlay {
+  background: color-mix(in oklab, #2a1b10 58%, transparent);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.dsh-mb-merge-dialog {
+  border-radius: 22px; border-color: var(--mb-line); background: var(--mb-elevated);
+  box-shadow: 0 48px 120px -42px rgba(42, 26, 12, 0.6), 0 2px 10px rgba(42, 26, 12, 0.12);
+}
+.dsh-mb-merge-head {
+  padding: 16px 20px; gap: 12px; border-bottom: 1px solid var(--mb-line);
+  background: linear-gradient(180deg, var(--mb-accent-soft), var(--mb-card) 100%);
+}
+.dsh-mb-merge-title { font-size: 20px; font-weight: 650; letter-spacing: -0.018em; }
+.dsh-mb-merge-head .dsh-mb-btn--icon {
+  width: 36px; height: 36px; border-radius: 50%; border-color: transparent;
+  background: color-mix(in oklab, var(--mb-card) 70%, transparent); color: var(--dsw-alias-label-secondary);
+}
+.dsh-mb-merge-head .dsh-mb-btn--icon:hover:not(:disabled) {
+  background: var(--mb-card); color: var(--dsw-alias-label-primary);
+}
+.dsh-mb-merge-body { padding: 18px 20px 20px; gap: 14px; }
+.dsh-mb-merge-actions { gap: 8px; }
+.dsh-mb-merge-error { font-weight: 500; }
+.dsh-mb-merge-list { padding: 2px; }
+.dsh-mb-shortcut-row { border-bottom-color: var(--mb-line); }
+.dsh-mb-shortcut-key {
+  border-color: var(--mb-line); border-radius: 8px; background: var(--mb-surface-2);
+}
+
+/* --------------------------------------------------------- import dialog */
+
+.dsh-mb-import-dialog { width: min(680px, 100%); max-height: min(88vh, 720px); }
+.dsh-mb-import-head {
+  align-items: flex-start; gap: 12px; padding: 18px 20px 16px;
+  border-bottom: 1px solid var(--mb-line);
+  background: linear-gradient(180deg, var(--mb-accent-soft), var(--mb-elevated) 78%);
+}
+.dsh-mb-import-badge {
+  display: grid; place-items: center; flex: none; width: 40px; height: 40px;
+  border-radius: 14px; color: #fff8f2;
+  background: linear-gradient(150deg, var(--mb-coral-500), var(--mb-coral-600) 68%);
+  box-shadow: var(--mb-shadow-coral);
+}
+.dsh-mb-import-heading { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.dsh-mb-import-heading .dsh-mb-merge-title { flex: none; }
+.dsh-mb-import-subtitle {
+  margin: 0; color: var(--mb-ink-2); font-size: 12.5px;
+  line-height: 1.4; overflow-wrap: anywhere;
+}
+.dsh-mb-import-modes {
+  gap: 4px; padding: 5px; border-color: var(--mb-line);
+  border-radius: 999px; background: var(--mb-surface-2);
+}
+.dsh-mb-import-mode {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  height: 36px; padding: 0 14px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  color: var(--mb-ink-2);
+}
+.dsh-mb-import-mode svg { opacity: 0.85; }
+.dsh-mb-import-mode[aria-pressed='true'] {
+  border-color: transparent; background: var(--mb-card); color: var(--mb-accent-ink);
+  box-shadow: var(--mb-shadow-1);
+}
+.dsh-mb-import-panel { gap: 14px; }
+.dsh-mb-import-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dsh-mb-import-count {
+  display: inline-flex; align-items: center; flex: none; height: 22px; padding: 0 9px;
+  border: 1px solid var(--mb-line); border-radius: 999px; background: var(--mb-card);
+  color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 600;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.dsh-mb-import-count[data-warn='true'] {
+  border-color: color-mix(in oklab, var(--dsw-alias-state-error-primary) 36%, var(--mb-line));
+  background: color-mix(in oklab, var(--mb-canvas) 88%, var(--dsw-alias-state-error-primary) 12%);
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-mb-import-panel .dsh-mb-textarea { min-height: 128px; }
+.dsh-mb-import-hint {
+  border-style: solid; border-color: color-mix(in oklab, var(--mb-coral-500) 24%, var(--mb-line));
+  background: var(--mb-accent-soft); border-radius: 14px;
+}
+.dsh-mb-import-summary { border-radius: 14px; border-color: var(--mb-line); background: var(--mb-card); }
+.dsh-mb-import-counts .dsh-mb-meta-pill { height: 24px; font-weight: 600; }
+.dsh-mb-import-count--added {
+  border-color: color-mix(in oklab, var(--dsw-alias-state-success-primary) 34%, transparent);
+  background: color-mix(in oklab, var(--mb-canvas) 86%, var(--dsw-alias-state-success-primary) 14%);
+}
+.dsh-mb-import-count--duplicates { border-color: var(--mb-line); background: var(--mb-surface-2); }
+.dsh-mb-import-count--failed {
+  border-color: color-mix(in oklab, var(--dsw-alias-state-error-primary) 32%, transparent);
+  background: color-mix(in oklab, var(--mb-canvas) 88%, var(--dsw-alias-state-error-primary) 12%);
+}
+.dsh-mb-import-actions { gap: 8px; }
+.dsh-mb-import-foot {
+  display: flex; align-items: center; gap: 10px; flex: none; padding: 14px 20px;
+  border-top: 1px solid var(--mb-line);
+  background: color-mix(in oklab, var(--mb-canvas) 74%, var(--mb-card) 26%);
+}
+.dsh-mb-import-status {
+  flex: 1 1 auto; min-width: 0; margin: 0;
+  color: var(--mb-ink-2); font-size: 12px; font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dsh-mb-import-foot .dsh-mb-merge-actions { margin-left: auto; flex-wrap: nowrap; }
+
+/* ----------------------------------------------------------------- focus */
+
+.dsh-mb-page :focus-visible { outline-color: var(--mb-coral-500); }
+.dsh-mb-page .dsh-mb-btn:focus-visible { border-radius: 999px; }
+.dsh-mb-page .dsh-mb-input:focus-visible,
+.dsh-mb-page .dsh-mb-textarea:focus-visible { border-radius: 12px; }
+.dsh-mb-page .dsh-mb-switch:focus-visible { border-radius: 14px; }
+.dsh-mb-details-head > .dsh-mb-btn { flex: none; }
+.dsh-mb-section-title { font-size: 16px; font-weight: 650; letter-spacing: -0.012em; }
+
+/* ------------------------------------------------------------ responsive */
+
+@media (max-width: 640px) {
+  .dsh-mb-import-dialog { height: 100%; max-height: 100%; }
+  .dsh-mb-header-actions > a.dsh-mb-btn--icon { display: none; }
+  .dsh-mb-import-dialog .dsh-mb-merge-head,
+  .dsh-mb-import-head { padding: 14px 16px 12px; }
+  .dsh-mb-import-head .dsh-mb-merge-title { font-size: 18px; }
+  .dsh-mb-import-badge { width: 36px; height: 36px; border-radius: 12px; }
+  .dsh-mb-import-dialog .dsh-mb-merge-body { padding: 14px 16px 16px; }
+  .dsh-mb-import-foot { padding: 12px 16px; }
+  .dsh-mb-import-status { display: none; }
+  .dsh-mb-import-foot .dsh-mb-merge-actions { width: 100%; }
+  .dsh-mb-import-foot .dsh-mb-btn:not(.dsh-mb-btn--primary) { flex: 0 0 auto; }
+  .dsh-mb-import-foot .dsh-mb-btn--primary { flex: 1 1 auto; }
+  .dsh-mb-details-body { padding: 14px; }
+  .dsh-mb-merge-head { padding: 14px 16px; }
+  .dsh-mb-merge-body { padding: 14px 16px 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dsh-mb-import-mode, .dsh-mb-switch-hint, .dsh-mb-details-pill, .dsh-mb-import-badge { transition: none; }
+}
 
 /* --------------------------------------------------------------- composer */
 
@@ -2833,7 +3346,14 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { className: 'dsh-mb-details-heading' },
-            h('span', { className: 'dsh-mb-details-kicker' }, t('detailsKicker')),
+            h(
+              'div',
+              { className: 'dsh-mb-details-top' },
+              h('span', { className: 'dsh-mb-details-kicker' }, t('detailsKicker')),
+              pinned
+                ? h('span', { className: 'dsh-mb-details-pill' }, h(IconPin, { size: 10 }), t('styleGuideBadge'))
+                : null,
+            ),
             h('h2', { className: 'dsh-mb-details-title', title: image.name }, image.name),
           ),
           h(
@@ -2852,6 +3372,7 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'dsh-mb-details-body' },
           h('div', { className: 'dsh-mb-preview' }, h(Thumb, { image, alt: t('previewAlt', { name: image.name }) })),
+        h('span', { className: 'dsh-mb-details-section-label' }, t('sectionDetails')),
         h(
           'div',
           { className: 'dsh-mb-field' },
@@ -2957,118 +3478,145 @@ window.__ModuleLoader__.load({
         ),
         h(
           'div',
-          { className: 'dsh-mb-details-actions' },
+          { className: 'dsh-mb-details-section' },
+          h('span', { className: 'dsh-mb-details-section-label' }, t('metadataLabel')),
           h(
-            'button',
-            {
-              type: 'button',
-              className: 'dsh-mb-btn',
-              disabled: saving,
-              title: t('copyMetadata'),
-              'aria-label': t('copyMetadata'),
-              onClick: copyMetadata,
-            },
-            t('copyMetadata'),
+            'div',
+            { className: 'dsh-mb-details-actions dsh-mb-details-meta-row' },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-mb-btn',
+                disabled: saving,
+                title: t('copyMetadata'),
+                'aria-label': t('copyMetadata'),
+                onClick: copyMetadata,
+              },
+              h(IconCopy, { size: 13 }),
+              t('copyMetadata'),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-mb-btn',
+                disabled: saving || !clipboardReady,
+                title: clipboardReady ? t('pasteMetadata') : t('metadataPasteEmpty'),
+                'aria-label': clipboardReady ? t('pasteMetadata') : t('metadataPasteEmpty'),
+                onClick: pasteMetadata,
+              },
+              h(IconClipboard, { size: 13 }),
+              t('pasteMetadata'),
+            ),
+            metaStatus !== '' ? h('span', { className: 'dsh-mb-saved', role: 'status' }, metaStatus) : null,
           ),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dsh-mb-btn',
-              disabled: saving || !clipboardReady,
-              title: clipboardReady ? t('pasteMetadata') : t('metadataPasteEmpty'),
-              'aria-label': clipboardReady ? t('pasteMetadata') : t('metadataPasteEmpty'),
-              onClick: pasteMetadata,
-            },
-            t('pasteMetadata'),
-          ),
-          metaStatus !== '' ? h('span', { className: 'dsh-mb-saved', role: 'status' }, metaStatus) : null,
-        ),
-        h(
-          'button',
-          {
-            type: 'button',
-            className: 'dsh-mb-switch',
-            role: 'switch',
-            'aria-checked': pinned ? 'true' : 'false',
-            onClick: () => setPinned(!pinned),
-          },
-          h(
-            'span',
-            { className: 'dsh-mb-switch-track', 'aria-hidden': 'true' },
-            h('span', { className: 'dsh-mb-switch-knob' }),
-          ),
-          h('span', null, t('pinSwitch')),
         ),
         h(
           'div',
-          { className: 'dsh-mb-details-actions' },
+          { className: 'dsh-mb-details-section' },
+          h('span', { className: 'dsh-mb-details-section-label' }, t('sectionStyleGuide')),
           h(
             'button',
             {
               type: 'button',
-              className: 'dsh-mb-btn dsh-mb-btn--icon',
-              disabled: saving || removing || props.mutating || !props.canMove,
-              title: t('moveLeftLabel', { name: image.name }),
-              'aria-label': t('moveLeftLabel', { name: image.name }),
-              onClick: () => props.onMove(-1),
+              className: 'dsh-mb-switch',
+              role: 'switch',
+              'aria-checked': pinned ? 'true' : 'false',
+              onClick: () => setPinned(!pinned),
             },
-            h(IconChevron, { size: 12, direction: 'left' }),
+            h('span', { className: 'dsh-mb-switch-icon', 'aria-hidden': 'true' }, h(IconPin, { size: 13 })),
+            h(
+              'span',
+              { className: 'dsh-mb-switch-text' },
+              h('span', { className: 'dsh-mb-switch-title' }, t('pinSwitch')),
+              h('span', { className: 'dsh-mb-switch-hint' }, t('pinSwitchHint')),
+            ),
+            h(
+              'span',
+              { className: 'dsh-mb-switch-track', 'aria-hidden': 'true' },
+              h('span', { className: 'dsh-mb-switch-knob' }),
+            ),
           ),
+        ),
+        h(
+          'div',
+          { className: 'dsh-mb-details-manage' },
+          h('span', { className: 'dsh-mb-details-section-label' }, t('sectionManage')),
           h(
-            'button',
-            {
-              type: 'button',
-              className: 'dsh-mb-btn dsh-mb-btn--icon',
-              disabled: saving || removing || props.mutating || !props.canMove,
-              title: t('moveRightLabel', { name: image.name }),
-              'aria-label': t('moveRightLabel', { name: image.name }),
-              onClick: () => props.onMove(1),
-            },
-            h(IconChevron, { size: 12, direction: 'right' }),
-          ),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dsh-mb-btn',
-              disabled: saving || replaceBusy || removing,
-              onClick: requestReplace,
-            },
-            h(IconSwap, { size: 13 }),
-            replaceBusy ? t('replaceBusy') : t('replace'),
-          ),
-          confirmRemove
-            ? h(
-                React.Fragment,
-                null,
-                h(
+            'div',
+            { className: 'dsh-mb-details-actions' },
+            h(
+              'span',
+              { className: 'dsh-mb-move-group' },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-mb-btn dsh-mb-btn--icon',
+                  disabled: saving || removing || props.mutating || !props.canMove,
+                  title: t('moveLeftLabel', { name: image.name }),
+                  'aria-label': t('moveLeftLabel', { name: image.name }),
+                  onClick: () => props.onMove(-1),
+                },
+                h(IconChevron, { size: 12, direction: 'left' }),
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-mb-btn dsh-mb-btn--icon',
+                  disabled: saving || removing || props.mutating || !props.canMove,
+                  title: t('moveRightLabel', { name: image.name }),
+                  'aria-label': t('moveRightLabel', { name: image.name }),
+                  onClick: () => props.onMove(1),
+                },
+                h(IconChevron, { size: 12, direction: 'right' }),
+              ),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-mb-btn',
+                disabled: saving || replaceBusy || removing,
+                onClick: requestReplace,
+              },
+              h(IconSwap, { size: 13 }),
+              replaceBusy ? t('replaceBusy') : t('replace'),
+            ),
+            confirmRemove
+              ? h(
+                  React.Fragment,
+                  null,
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'dsh-mb-btn dsh-mb-btn--danger',
+                      autoFocus: true,
+                      disabled: removing,
+                      onClick: onConfirmRemove,
+                    },
+                    removing ? t('remove') : t('confirm'),
+                  ),
+                  h(
+                    'button',
+                    { type: 'button', className: 'dsh-mb-btn', onClick: () => setConfirmRemove(false) },
+                    t('cancel'),
+                  ),
+                )
+              : h(
                   'button',
                   {
                     type: 'button',
                     className: 'dsh-mb-btn dsh-mb-btn--danger',
-                    autoFocus: true,
-                    disabled: removing,
-                    onClick: onConfirmRemove,
+                    disabled: saving,
+                    onClick: () => setConfirmRemove(true),
                   },
-                  removing ? t('remove') : t('confirm'),
+                  t('remove'),
                 ),
-                h(
-                  'button',
-                  { type: 'button', className: 'dsh-mb-btn', onClick: () => setConfirmRemove(false) },
-                  t('cancel'),
-                ),
-              )
-            : h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'dsh-mb-btn dsh-mb-btn--danger',
-                  disabled: saving,
-                  onClick: () => setConfirmRemove(true),
-                },
-                t('remove'),
-              ),
+          ),
         ),
         confirmRemove
           ? h('p', { className: 'dsh-mb-hint', role: 'alert' }, t('confirmRemove', { name: image.name }))
@@ -3266,6 +3814,7 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { className: 'dsh-mb-merge-head' },
+            h('span', { className: 'dsh-mb-import-badge', 'aria-hidden': 'true' }, h(IconTag, { size: 18 })),
             h('h2', { id: headingId, className: 'dsh-mb-merge-title' }, t('tagMergeTitle')),
             h(
               'button',
@@ -3338,6 +3887,7 @@ window.__ModuleLoader__.load({
                   h(
                     'div',
                     { className: 'dsh-mb-merge-actions' },
+                    h('button', { type: 'button', className: 'dsh-mb-btn', disabled: busy, onClick: props.onClose }, t('cancel')),
                     h(
                       'button',
                       {
@@ -3351,7 +3901,6 @@ window.__ModuleLoader__.load({
                       },
                       busy ? t('tagMergeBusy') : t('tagMergeAction'),
                     ),
-                    h('button', { type: 'button', className: 'dsh-mb-btn', disabled: busy, onClick: props.onClose }, t('cancel')),
                   ),
                 ),
           ),
@@ -3750,7 +4299,7 @@ window.__ModuleLoader__.load({
         trapFocus(event)
       }
 
-      const modeButton = (id, label) =>
+      const modeButton = (id, label, icon) =>
         h(
           'button',
           {
@@ -3763,8 +4312,14 @@ window.__ModuleLoader__.load({
               setFormError('')
             },
           },
+          h(icon, { size: 14 }),
           label,
         )
+
+      // Live count for the link mode, using the same parser the submit path
+      // uses. The Host still validates the 1..20 range on submit; this pill
+      // just shows it while the user pastes.
+      const linkCount = parseImportUrls(linkText).length
 
       const renderLinkForm = () =>
         h(
@@ -3773,19 +4328,31 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { className: 'dsh-mb-field' },
-            h('label', { className: 'dsh-mb-label', htmlFor: linkId }, t('importLinkLabel')),
+            h(
+              'div',
+              { className: 'dsh-mb-import-label-row' },
+              h('label', { className: 'dsh-mb-label', htmlFor: linkId }, t('importLinkLabel')),
+              h(
+                'span',
+                {
+                  className: 'dsh-mb-import-count',
+                  'data-warn': linkCount > MAX_IMPORT_URLS ? 'true' : undefined,
+                },
+                t('importLinkCount', { count: linkCount, max: MAX_IMPORT_URLS }),
+              ),
+            ),
             h('textarea', {
               id: linkId,
               className: 'dsh-mb-textarea',
               value: linkText,
               placeholder: t('importLinkPlaceholder'),
+              rows: 4,
               spellCheck: false,
               onChange: (event) => {
                 setLinkText(event.currentTarget.value)
                 setFormError('')
               },
             }),
-            h('span', { className: 'dsh-mb-hint' }, t('importLinkHint')),
           ),
         )
 
@@ -3916,7 +4483,6 @@ window.__ModuleLoader__.load({
                 h('p', { className: 'dsh-mb-hint' }, t('importMobbinUnavailable', { path: configPath })),
               )
             : null,
-          h('p', { className: 'dsh-mb-hint' }, t('importDiscoverHint')),
         )
       }
 
@@ -4056,12 +4622,18 @@ window.__ModuleLoader__.load({
             'aria-checked': pinned ? 'true' : 'false',
             onClick: () => setPinned(!pinned),
           },
+          h('span', { className: 'dsh-mb-switch-icon', 'aria-hidden': 'true' }, h(IconPin, { size: 13 })),
+          h(
+            'span',
+            { className: 'dsh-mb-switch-text' },
+            h('span', { className: 'dsh-mb-switch-title' }, t('importPin')),
+            h('span', { className: 'dsh-mb-switch-hint' }, t('importPinHint')),
+          ),
           h(
             'span',
             { className: 'dsh-mb-switch-track', 'aria-hidden': 'true' },
             h('span', { className: 'dsh-mb-switch-knob' }),
           ),
-          h('span', { className: 'dsh-mb-switch-text' }, t('importPin')),
         )
 
       return h(
@@ -4084,8 +4656,14 @@ window.__ModuleLoader__.load({
           },
           h(
             'div',
-            { className: 'dsh-mb-merge-head' },
-            h('h2', { id: headingId, className: 'dsh-mb-merge-title' }, t('importTitle')),
+            { className: 'dsh-mb-merge-head dsh-mb-import-head' },
+            h('span', { className: 'dsh-mb-import-badge', 'aria-hidden': 'true' }, h(IconLink, { size: 18 })),
+            h(
+              'div',
+              { className: 'dsh-mb-import-heading' },
+              h('h2', { id: headingId, className: 'dsh-mb-merge-title' }, t('importTitle')),
+              h('p', { className: 'dsh-mb-import-subtitle' }, t('importSubtitle')),
+            ),
             h(
               'button',
               {
@@ -4105,8 +4683,8 @@ window.__ModuleLoader__.load({
             h(
               'div',
               { className: 'dsh-mb-import-modes', role: 'group', 'aria-label': t('importModeLabel') },
-              modeButton('link', t('importTabLink')),
-              modeButton('discover', t('importTabDiscover')),
+              modeButton('link', t('importTabLink'), IconLink),
+              modeButton('discover', t('importTabDiscover'), IconSparkle),
             ),
             mode === 'link' ? renderLinkForm() : renderDiscoverForm(),
             renderTagField(),
@@ -4115,9 +4693,19 @@ window.__ModuleLoader__.load({
               ? h('p', { className: 'dsh-mb-merge-error', role: 'alert' }, formError)
               : null,
             renderResult(),
+          ),
+          h(
+            'div',
+            { className: 'dsh-mb-import-foot' },
+            h(
+              'p',
+              { className: 'dsh-mb-import-status' },
+              mode === 'link' ? t('importLinkHint') : t('importDiscoverHint'),
+            ),
             h(
               'div',
               { className: 'dsh-mb-merge-actions' },
+              h('button', { type: 'button', className: 'dsh-mb-btn', onClick: props.onClose }, t('importDone')),
               h(
                 'button',
                 {
@@ -4135,7 +4723,6 @@ window.__ModuleLoader__.load({
                     ? t('importSubmitLinks')
                     : t('importSubmitDiscover'),
               ),
-              h('button', { type: 'button', className: 'dsh-mb-btn', onClick: props.onClose }, t('importDone')),
             ),
           ),
         ),
