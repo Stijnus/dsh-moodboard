@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1 — 2026-10-31
+
+### Changed
+
+- Release housekeeping only: republishes 0.3.0's inspiration-intake work from
+  the corrected `main` tip so the npm provenance commit, the `v0.3.1` tag and
+  the public market metadata line up. Adds the documented plugin-market index
+  entries and refreshed README to the published package. No runtime behaviour
+  changed from 0.3.0.
+
 ## 0.3.0 — 2026-10-29
 
 ### Added
