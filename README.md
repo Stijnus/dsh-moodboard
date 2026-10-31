@@ -20,7 +20,7 @@ See [docs/UI-REDESIGN.md](https://github.com/Stijnus/dsh-moodboard/blob/main/doc
 
 ## Preview
 
-![Moodboard panel: warm sand canvas, active style guide, gallery, tag filters and reference cards](https://raw.githubusercontent.com/Stijnus/dsh-moodboard/main/docs/panel.jpg)
+![Moodboard panel: warm sand canvas, active style guide, gallery, tag filters and reference cards](https://raw.githubusercontent.com/Stijnus/dsh-moodboard/main/docs/panel.jpg?v=0.4.0)
 
 A quick tour after installation:
 
@@ -161,7 +161,7 @@ has two intakes:
   number of results — text blocks are skipped, not counted and not reported as
   failures.
 
-![Add references dialog: From links and Discover tabs, live link counter, tags and pin setting](https://raw.githubusercontent.com/Stijnus/dsh-moodboard/main/docs/import-dialog.jpg)
+![Add references dialog: From links and Discover tabs, live link counter, tags and pin setting](https://raw.githubusercontent.com/Stijnus/dsh-moodboard/main/docs/import-dialog.jpg?v=0.4.0)
 
 The dialog is the redesigned intake surface: a gradient header with a coral link
 badge, icon segmented tabs, a live `n / 20 links` counter, a proper pin setting
@@ -187,7 +187,7 @@ MCP setup, the source matrix and the designer-respect rules.
 
 Selecting a gallery card opens the reference inspector next to the gallery.
 
-![Reference inspector: Style guide pill, 16:10 preview, Details, Metadata, Style guide and Manage sections](https://raw.githubusercontent.com/Stijnus/dsh-moodboard/main/docs/inspector.jpg)
+![Reference inspector: Style guide pill, 16:10 preview, Details and Metadata sections, sticky Save footer](https://raw.githubusercontent.com/Stijnus/dsh-moodboard/main/docs/inspector.jpg?v=0.4.0)
 
 The inspector keeps the working surface close to the reference:
 
