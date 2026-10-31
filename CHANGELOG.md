@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.1 — 2026-10-31
+
+### Changed
+
+- Documentation-only release. The README now documents the Warm Sand Studio
+  panel, the redesigned **Add references** dialog and reference inspector, the
+  current tool and HTTP surface, the limits, and the corrected CLI / bundle
+  enablement and provenance details. The panel, dialog and inspector
+  screenshots were re-captured from the running app and show the live
+  10-image / 5-pinned board. The Chinese README received the same UI update.
+  No runtime, API or client-UI code changed from 0.4.0.
+
 ## 0.4.0 — 2026-10-31
 
 ### Changed
