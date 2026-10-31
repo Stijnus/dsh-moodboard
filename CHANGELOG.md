@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — Warm Sand Studio UI
+## 0.4.0 — 2026-10-31
 
 ### Changed
 
