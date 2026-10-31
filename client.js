@@ -30,6 +30,8 @@ window.__ModuleLoader__.load({
     const BULK_PATH = '/moodboard/api/images/bulk'
     const TAGS_MERGE_PATH = '/moodboard/api/tags/merge'
     const REVISION_PATH = '/moodboard/api/revision'
+    const IMPORT_PATH = '/moodboard/api/import'
+    const SOURCES_PATH = '/moodboard/api/sources'
     /** How often the panel looks for board writes made outside this client. */
     const REVISION_POLL_MS = 3000
     /** A hung revision read must not stall the poll forever. */
@@ -46,6 +48,15 @@ window.__ModuleLoader__.load({
     const MAX_NOTES_LENGTH = 4000
     const MAX_SOURCE_URL_LENGTH = 2000
     const MAX_ERROR_CHARS = 320
+    /** Intake limits mirrored from the Host contract, validated before the POST. */
+    const MAX_IMPORT_URLS = 20
+    const MAX_IMPORT_QUERY_LENGTH = 500
+    const MAX_DISCOVER_LIMIT = 12
+    const DEFAULT_DISCOVER_LIMIT = 6
+    /** Only the first few item failures are listed; the rest stay a count. */
+    const MAX_IMPORT_FAILURES_SHOWN = 4
+    /** Shown in the Mobbin hint when the Host did not report its config path. */
+    const IMPORT_CONFIG_PATH_FALLBACK = 'sources.json'
     const DRAG_ID_TYPE = 'application/x-moodboard-id'
     const TAG_SUGGESTIONS_ID = 'dsh-mb-tag-suggestions'
     const LIGHTBOX_FOCUSABLE =
@@ -270,6 +281,52 @@ window.__ModuleLoader__.load({
         metadataCopied: 'Copied tags, notes and source',
         metadataPasted: 'Pasted tags, notes and source — save to apply',
         metadataPasteEmpty: 'Copy an image’s metadata first',
+
+        addFromLink: 'Add from link',
+        importTitle: 'Add references',
+        importClose: 'Close import dialog',
+        importModeLabel: 'Import mode',
+        importTabLink: 'From links',
+        importTabDiscover: 'Discover',
+        importLinkLabel: 'Links (one per line)',
+        importLinkPlaceholder: 'https://example.com/design\nhttps://example.com/case-study',
+        importLinkHint: '1–20 public page or image links. Each page contributes its preview image.',
+        importSourcesLabel: 'Source',
+        importSourcesLoading: 'Loading sources…',
+        importSourcesFailed: 'Could not load the import sources: {message}',
+        importNoSources: 'No search source is available right now. Use “From links” instead.',
+        importMobbinUnavailable: 'Mobbin needs a Team/Enterprise API key. Set MOBBIN_API_KEY or add the key to {path}.',
+        importDiscoverQuery: 'Search query',
+        importDiscoverQueryPlaceholder: 'e.g. checkout paywall',
+        importDiscoverPlatform: 'Platform',
+        importPlatformIos: 'iOS',
+        importPlatformWeb: 'Web',
+        importDiscoverLimit: 'Results',
+        importDiscoverHint: 'The plugin Host searches the source and adds the image previews.',
+        importPin: 'Pin imported references',
+        importSubmitLinks: 'Add references',
+        importSubmitDiscover: 'Search & add',
+        importSubmitting: 'Importing…',
+        importNeedLinks: 'Add at least one link.',
+        importTooManyLinks: 'Add at most 20 links.',
+        importNeedQuery: 'Enter a search query.',
+        importQueryTooLong: 'The search query must be 500 characters or fewer.',
+        importLimitInvalid: 'Choose between 1 and 12 results.',
+        importFailed: 'Could not import references: {message}',
+        importResultsTitle: 'Import results',
+        importAddedCount: 'Added {count}',
+        importDuplicateCount: 'Already on board {count}',
+        importFailedCount: 'Failed {count}',
+        importNoFailures: 'No failures.',
+        importMoreFailures: '+{count} more failures',
+        importFailure: '{input} — {message}',
+        importUnknownFailure: 'Unknown error.',
+        importCopyWorkflow: 'Copy workflow',
+        importCopyingWorkflow: 'Copying…',
+        importWorkflowCopied: 'Workflow copied to the clipboard',
+        importWorkflowUnavailable: 'The workflow text is not available yet.',
+        importWorkflowCopyFailed: 'Could not copy the workflow: {message}',
+        importDone: 'Done',
       },
       zh: {
         panel: '灵感板',
@@ -484,6 +541,52 @@ window.__ModuleLoader__.load({
         metadataCopied: '已复制标签、备注和来源',
         metadataPasted: '已粘贴标签、备注和来源——保存后生效',
         metadataPasteEmpty: '请先复制一张图片的元数据',
+
+        addFromLink: '从链接添加',
+        importTitle: '添加参考图',
+        importClose: '关闭导入对话框',
+        importModeLabel: '导入方式',
+        importTabLink: '从链接',
+        importTabDiscover: '发现',
+        importLinkLabel: '链接（每行一个）',
+        importLinkPlaceholder: 'https://example.com/design\nhttps://example.com/case-study',
+        importLinkHint: '1–20 个公开页面或图片链接。每个页面会取其预览图。',
+        importSourcesLabel: '来源',
+        importSourcesLoading: '正在加载来源…',
+        importSourcesFailed: '无法加载导入来源：{message}',
+        importNoSources: '当前没有可用的搜索来源。请改用“从链接”。',
+        importMobbinUnavailable: 'Mobbin 需要 Team/Enterprise API 密钥。请设置 MOBBIN_API_KEY，或将密钥添加到 {path}。',
+        importDiscoverQuery: '搜索关键词',
+        importDiscoverQueryPlaceholder: '例如：checkout paywall',
+        importDiscoverPlatform: '平台',
+        importPlatformIos: 'iOS',
+        importPlatformWeb: 'Web',
+        importDiscoverLimit: '结果数量',
+        importDiscoverHint: '插件 Host 会在该来源中搜索，并添加图片预览。',
+        importPin: '钉选导入的参考图',
+        importSubmitLinks: '添加参考图',
+        importSubmitDiscover: '搜索并添加',
+        importSubmitting: '导入中…',
+        importNeedLinks: '请至少添加一个链接。',
+        importTooManyLinks: '最多添加 20 个链接。',
+        importNeedQuery: '请输入搜索关键词。',
+        importQueryTooLong: '搜索关键词不能超过 500 个字符。',
+        importLimitInvalid: '请选择 1 到 12 个结果。',
+        importFailed: '无法导入参考图：{message}',
+        importResultsTitle: '导入结果',
+        importAddedCount: '已添加 {count}',
+        importDuplicateCount: '已在灵感板 {count}',
+        importFailedCount: '失败 {count}',
+        importNoFailures: '没有失败项。',
+        importMoreFailures: '另有 {count} 个失败',
+        importFailure: '{input} — {message}',
+        importUnknownFailure: '未知错误。',
+        importCopyWorkflow: '复制工作流',
+        importCopyingWorkflow: '复制中…',
+        importWorkflowCopied: '工作流已复制到剪贴板',
+        importWorkflowUnavailable: '工作流文本尚不可用。',
+        importWorkflowCopyFailed: '无法复制工作流：{message}',
+        importDone: '完成',
       },
     }
 
@@ -535,6 +638,34 @@ window.__ModuleLoader__.load({
       } catch (error) {
         return false
       }
+    }
+
+    /**
+     * Split the import textarea into URL candidates. Newlines and whitespace both
+     * separate links; blank duplicates are dropped so a pasted list counts once.
+     * Item-level validation (scheme, safety) stays on the Host.
+     */
+    function parseImportUrls(text) {
+      if (typeof text !== 'string') return []
+      const trimmed = text.trim()
+      if (trimmed === '') return []
+      const seen = new Set()
+      const urls = []
+      for (const token of trimmed.split(/\s+/)) {
+        if (token === '' || seen.has(token)) continue
+        seen.add(token)
+        urls.push(token)
+      }
+      return urls
+    }
+
+    /** One import failure line: `<input> — <message>`, both Host-supplied. */
+    function importFailureText(t, failure) {
+      const row = failure !== null && typeof failure === 'object' ? failure : {}
+      const input = typeof row.input === 'string' ? row.input : ''
+      const message =
+        typeof row.message === 'string' && row.message !== '' ? row.message : t('importUnknownFailure')
+      return input === '' ? message : t('importFailure', { input, message })
     }
 
     function imageCountText(t, count) {
@@ -2101,6 +2232,27 @@ window.__ModuleLoader__.load({
 .dsh-mb-shortcut-row:last-child { border-bottom: 0; }
 .dsh-mb-shortcut-key { flex: none; padding: 3px 8px; border: 1px solid var(--mb-line); border-radius: 7px; background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; white-space: nowrap; }
 
+/* --------------------------------------------------------- import dialog */
+
+.dsh-mb-import-dialog { width: min(580px, 100%); }
+.dsh-mb-import-modes { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--mb-line); border-radius: 999px; background: var(--dsw-alias-bg-layer-2); }
+.dsh-mb-import-mode { flex: 1 1 0; height: 30px; padding: 0 12px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background 0.15s var(--mb-ease), color 0.15s var(--mb-ease), border-color 0.15s var(--mb-ease); }
+.dsh-mb-import-mode:hover:not([aria-pressed='true']) { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.dsh-mb-import-mode[aria-pressed='true'] { border-color: var(--dsw-alias-brand-primary); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); box-shadow: var(--mb-shadow-1); }
+.dsh-mb-import-panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.dsh-mb-import-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.dsh-mb-import-row > .dsh-mb-field { flex: 1 1 140px; }
+.dsh-mb-import-row > .dsh-mb-import-limit { flex: 0 0 132px; }
+.dsh-mb-import-hint { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px dashed var(--mb-line-strong); border-radius: var(--mb-r-sm); background: var(--mb-warm-wash); }
+.dsh-mb-import-summary { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--mb-line); border-radius: var(--mb-r-sm); background: var(--dsw-alias-bg-layer-2); }
+.dsh-mb-import-counts { display: flex; flex-wrap: wrap; gap: 6px; }
+.dsh-mb-import-count--added { border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 30%, transparent); background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, var(--mb-surface)); color: var(--dsw-alias-label-primary); }
+.dsh-mb-import-count--duplicates { border-color: var(--mb-line); background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); }
+.dsh-mb-import-count--failed { border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 30%, transparent); background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 9%, var(--mb-surface)); color: var(--dsw-alias-label-primary); }
+.dsh-mb-import-failures { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dsh-mb-import-failure { overflow-wrap: anywhere; }
+.dsh-mb-import-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
 /* --------------------------------------------------------------- composer */
 
 .dsh-mb-ref-btn { transition: background 0.15s var(--mb-ease), border-color 0.15s var(--mb-ease), color 0.15s var(--mb-ease); }
@@ -2212,6 +2364,22 @@ window.__ModuleLoader__.load({
           stroke: 'currentColor',
           strokeWidth: 1.5,
           strokeLinecap: 'round',
+          fill: 'none',
+        }),
+      )
+    }
+
+    function IconLink(props) {
+      const size = typeof props.size === 'number' ? props.size : 12
+      return h(
+        'svg',
+        { width: size, height: size, viewBox: '0 0 12 12', 'aria-hidden': 'true', focusable: 'false' },
+        h('path', {
+          d: 'M5 7l2-2M4.6 3.4l.8-.8a2 2 0 012.9 2.9l-.8.8M7.4 8.6l-.8.8a2 2 0 01-2.9-2.9l.8-.8',
+          stroke: 'currentColor',
+          strokeWidth: 1.4,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
           fill: 'none',
         }),
       )
@@ -2974,14 +3142,19 @@ window.__ModuleLoader__.load({
 
       // A disabled control (the Merge button while its request is in flight) can
       // drop focus to <body>, where the overlay's own keydown handler never sees
-      // the event. Keep Esc working from anywhere while the dialog is mounted;
-      // unmounting returns focus to the opener through the effect above.
+      // the event. Keep Esc and the Tab trap working from anywhere while the
+      // dialog is mounted; unmounting returns focus to the opener through the
+      // effect above.
       useEffect(() => {
         const onDocumentKeyDown = (event) => {
-          if (event === null || event === undefined || event.key !== 'Escape') return
+          if (event === null || event === undefined) return
           if (event.defaultPrevented) return
-          event.preventDefault()
-          props.onClose()
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            props.onClose()
+            return
+          }
+          if (event.key === 'Tab') trapFocus(event)
         }
         document.addEventListener('keydown', onDocumentKeyDown)
         return () => {
@@ -3028,13 +3201,10 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const onKeyDown = (event) => {
-        if (event.key === 'Escape') {
-          event.preventDefault()
-          event.stopPropagation()
-          props.onClose()
-          return
-        }
+      // Tab trap shared by the overlay handler and the document-level handler:
+      // a click on non-focusable padding can move focus to <body>, where the
+      // overlay does not see the next keydown.
+      function trapFocus(event) {
         if (event.key !== 'Tab') return
         const dialog = dialogRef.current
         if (dialog === null) return
@@ -3060,6 +3230,16 @@ window.__ModuleLoader__.load({
           event.preventDefault()
           first.focus()
         }
+      }
+
+      const onKeyDown = (event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          props.onClose()
+          return
+        }
+        trapFocus(event)
       }
 
       const trimmedTo = to.trim()
@@ -3292,6 +3472,676 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /**
+     * Accessible intake dialog. Two modes share one form: public links are
+     * captured by the Host, or a configured search source (Mobbin / Are.na) is
+     * queried and its previews added. All fetching stays Host-side; this
+     * component only calls `/moodboard/api` and renders the result summary.
+     */
+    function ImportDialog(props) {
+      const t = getTranslator(props)
+      const [mode, setMode] = useState('link')
+      const [linkText, setLinkText] = useState('')
+      const [tags, setTags] = useState([])
+      const [tagInput, setTagInput] = useState('')
+      const [tagError, setTagError] = useState('')
+      const [pinned, setPinned] = useState(false)
+      const [query, setQuery] = useState('')
+      const [sourceId, setSourceId] = useState('')
+      const [platform, setPlatform] = useState('ios')
+      const [limit, setLimit] = useState(String(DEFAULT_DISCOVER_LIMIT))
+      const [catalog, setCatalog] = useState(null)
+      const [sourcesLoading, setSourcesLoading] = useState(true)
+      const [sourcesError, setSourcesError] = useState('')
+      const [sourcesReload, setSourcesReload] = useState(0)
+      const [busy, setBusy] = useState(false)
+      const [formError, setFormError] = useState('')
+      const [result, setResult] = useState(null)
+      const [copying, setCopying] = useState(false)
+      const [copyStatus, setCopyStatus] = useState('')
+      const dialogRef = useRef(null)
+      const closeRef = useRef(null)
+      const headingId = 'dsh-mb-import-title'
+      const linkId = 'dsh-mb-import-links'
+      const sourceSelectId = 'dsh-mb-import-source'
+      const queryId = 'dsh-mb-import-query'
+      const platformId = 'dsh-mb-import-platform'
+      const limitId = 'dsh-mb-import-limit'
+      const tagsId = 'dsh-mb-import-tags'
+      const tagErrorId = 'dsh-mb-import-tag-error'
+
+      // Move focus into the dialog on open and hand it back to the opener on
+      // close, whichever path closed it (button, Esc or backdrop).
+      useEffect(() => {
+        const closeButton = closeRef.current
+        if (closeButton !== null) closeButton.focus()
+        return () => {
+          const opener = props.openerRef === null || props.openerRef === undefined ? null : props.openerRef.current
+          if (opener !== null && opener !== undefined && opener.isConnected === true) opener.focus()
+        }
+      }, [])
+
+      // Disabled submit buttons can drop focus to <body>, where the overlay's
+      // own keydown handler never sees the event; keep Esc and the Tab trap
+      // working from anywhere while the dialog is open.
+      useEffect(() => {
+        const onDocumentKeyDown = (event) => {
+          if (event === null || event === undefined) return
+          if (event.defaultPrevented) return
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            props.onClose()
+            return
+          }
+          if (event.key === 'Tab') trapFocus(event)
+        }
+        document.addEventListener('keydown', onDocumentKeyDown)
+        return () => {
+          document.removeEventListener('keydown', onDocumentKeyDown)
+        }
+      }, [])
+
+      // Sources load once per dialog mount. The Host re-reads its config on
+      // every call, so reopening the dialog is enough to pick up a new key.
+      useEffect(() => {
+        let alive = true
+        setSourcesLoading(true)
+        setSourcesError('')
+        requestJson(SOURCES_PATH)
+          .then((payload) => {
+            if (!alive) return
+            const rows = Array.isArray(payload.sources) ? payload.sources : []
+            setCatalog({
+              rows,
+              workflow: typeof payload.workflow === 'string' ? payload.workflow : '',
+              configPath: typeof payload.configPath === 'string' ? payload.configPath : '',
+            })
+          })
+          .catch((error) => {
+            if (!alive) return
+            setCatalog(null)
+            setSourcesError(t('importSourcesFailed', { message: messageOf(error) }))
+          })
+          .finally(() => {
+            if (alive) setSourcesLoading(false)
+          })
+        return () => {
+          alive = false
+        }
+      }, [sourcesReload])
+
+      const catalogRows = catalog === null ? [] : catalog.rows
+      const searchSources = catalogRows.filter(
+        (row) => row !== null && typeof row === 'object' && row.kind === 'search' && row.available === true,
+      )
+      const activeSource = searchSources.find((row) => row.id === sourceId) || null
+      const supportedPlatforms =
+        activeSource !== null && Array.isArray(activeSource.platforms)
+          ? activeSource.platforms.filter((value) => value === 'ios' || value === 'web')
+          : []
+      const mobbinRow = catalogRows.find(
+        (row) => row !== null && typeof row === 'object' && row.id === 'mobbin',
+      )
+      const mobbinUnavailable = mobbinRow !== null && mobbinRow !== undefined && mobbinRow.available !== true
+      const configPath = catalog !== null && catalog.configPath !== '' ? catalog.configPath : IMPORT_CONFIG_PATH_FALLBACK
+      const workflow = catalog === null ? '' : catalog.workflow.trim()
+
+      // Default the source select to the first available search source and keep
+      // a user choice across rerenders (falling back when the Host stops listing it).
+      useEffect(() => {
+        if (searchSources.length === 0) return
+        if (searchSources.some((row) => row.id === sourceId)) return
+        setSourceId(searchSources[0].id)
+      }, [catalog, sourceId])
+
+      useEffect(() => {
+        if (supportedPlatforms.length === 0) return
+        if (supportedPlatforms.indexOf(platform) !== -1) return
+        setPlatform(supportedPlatforms[0])
+      }, [activeSource, platform])
+
+      const addTag = () => {
+        const raw = tagInput.trim()
+        if (raw === '') {
+          setTagError(t('tagEmpty'))
+          return
+        }
+        if (raw.length > MAX_TAG_LENGTH) {
+          setTagError(t('tagTooLong'))
+          return
+        }
+        if (tags.length >= MAX_TAGS) {
+          setTagError(t('tagLimit'))
+          return
+        }
+        if (tags.some((tag) => tag.toLowerCase() === raw.toLowerCase())) {
+          setTagError(t('tagDuplicate'))
+          return
+        }
+        setTags(tags.concat([raw]))
+        setTagInput('')
+        setTagError('')
+      }
+
+      const removeTag = (tag) => {
+        setTags(tags.filter((entry) => entry !== tag))
+      }
+
+      const onCopyWorkflow = async () => {
+        if (copying) return
+        if (workflow === '') {
+          setCopyStatus(t('importWorkflowUnavailable'))
+          return
+        }
+        setCopying(true)
+        setCopyStatus('')
+        try {
+          await copyText(workflow)
+          setCopyStatus(t('importWorkflowCopied'))
+        } catch (error) {
+          setCopyStatus(t('importWorkflowCopyFailed', { message: messageOf(error) }))
+        } finally {
+          setCopying(false)
+        }
+      }
+
+      const onSubmit = async () => {
+        if (busy) return
+        setFormError('')
+        setCopyStatus('')
+        let body = null
+        if (mode === 'link') {
+          const urls = parseImportUrls(linkText)
+          if (urls.length === 0) {
+            setFormError(t('importNeedLinks'))
+            return
+          }
+          if (urls.length > MAX_IMPORT_URLS) {
+            setFormError(t('importTooManyLinks'))
+            return
+          }
+          body = { urls, tags, pinned }
+        } else {
+          if (activeSource === null) {
+            setFormError(t('importNoSources'))
+            return
+          }
+          const trimmedQuery = query.trim()
+          if (trimmedQuery === '') {
+            setFormError(t('importNeedQuery'))
+            return
+          }
+          if (trimmedQuery.length > MAX_IMPORT_QUERY_LENGTH) {
+            setFormError(t('importQueryTooLong'))
+            return
+          }
+          const parsedLimit = Number.parseInt(limit, 10)
+          if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > MAX_DISCOVER_LIMIT) {
+            setFormError(t('importLimitInvalid'))
+            return
+          }
+          body = { source: activeSource.id, query: trimmedQuery, platform, limit: parsedLimit, tags, pinned }
+        }
+        setBusy(true)
+        setResult(null)
+        try {
+          const payload = await requestJson(IMPORT_PATH, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          })
+          const imported = Array.isArray(payload.imported) ? payload.imported.length : 0
+          const duplicates = Array.isArray(payload.duplicates) ? payload.duplicates.length : 0
+          const failures = Array.isArray(payload.failures) ? payload.failures : []
+          setResult({ imported, duplicates, failures })
+          if (mode === 'link') setLinkText('')
+          else setQuery('')
+          // Refresh the gallery behind the dialog without its skeleton; the
+          // dialog stays open until the user picks "Done".
+          if (imported > 0) void refresh({ silent: true })
+        } catch (error) {
+          const message = msg('importFailed', { message: messageOf(error) })
+          setFormError(message)
+          // Route-level failures also surface through the page error banner.
+          setState({ error: message })
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      // Tab trap shared by the overlay handler and the document-level handler:
+      // a click on non-focusable padding can move focus to <body>, where the
+      // overlay does not see the next keydown.
+      function trapFocus(event) {
+        if (event.key !== 'Tab') return
+        const dialog = dialogRef.current
+        if (dialog === null) return
+        const focusable = []
+        dialog.querySelectorAll(LIGHTBOX_FOCUSABLE).forEach((node) => {
+          if (node.getClientRects().length > 0) focusable.push(node)
+        })
+        if (focusable.length === 0) {
+          event.preventDefault()
+          return
+        }
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        const active = document.activeElement
+        if (event.shiftKey) {
+          if (active === first || !dialog.contains(active)) {
+            event.preventDefault()
+            last.focus()
+          }
+          return
+        }
+        if (active === last || !dialog.contains(active)) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
+
+      const onKeyDown = (event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          props.onClose()
+          return
+        }
+        trapFocus(event)
+      }
+
+      const modeButton = (id, label) =>
+        h(
+          'button',
+          {
+            key: id,
+            type: 'button',
+            className: 'dsh-mb-import-mode',
+            'aria-pressed': mode === id ? 'true' : 'false',
+            onClick: () => {
+              setMode(id)
+              setFormError('')
+            },
+          },
+          label,
+        )
+
+      const renderLinkForm = () =>
+        h(
+          'div',
+          { className: 'dsh-mb-import-panel' },
+          h(
+            'div',
+            { className: 'dsh-mb-field' },
+            h('label', { className: 'dsh-mb-label', htmlFor: linkId }, t('importLinkLabel')),
+            h('textarea', {
+              id: linkId,
+              className: 'dsh-mb-textarea',
+              value: linkText,
+              placeholder: t('importLinkPlaceholder'),
+              spellCheck: false,
+              onChange: (event) => {
+                setLinkText(event.currentTarget.value)
+                setFormError('')
+              },
+            }),
+            h('span', { className: 'dsh-mb-hint' }, t('importLinkHint')),
+          ),
+        )
+
+      const renderDiscoverForm = () => {
+        if (sourcesLoading) {
+          return h('p', { className: 'dsh-mb-hint', role: 'status' }, t('importSourcesLoading'))
+        }
+        if (sourcesError !== '') {
+          return h(
+            'div',
+            { className: 'dsh-mb-import-hint' },
+            h('p', { className: 'dsh-mb-hint', role: 'alert' }, sourcesError),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-mb-btn dsh-mb-btn--small',
+                onClick: () => setSourcesReload((value) => value + 1),
+              },
+              t('retry'),
+            ),
+          )
+        }
+        if (searchSources.length === 0) {
+          return h(
+            'div',
+            { className: 'dsh-mb-import-hint' },
+            h('p', { className: 'dsh-mb-hint' }, t('importNoSources')),
+          )
+        }
+        return h(
+          'div',
+          { className: 'dsh-mb-import-panel' },
+          h(
+            'div',
+            { className: 'dsh-mb-field' },
+            h('label', { className: 'dsh-mb-label', htmlFor: sourceSelectId }, t('importSourcesLabel')),
+            h(
+              'select',
+              {
+                id: sourceSelectId,
+                className: 'dsh-mb-input',
+                value: sourceId,
+                onChange: (event) => {
+                  setSourceId(event.currentTarget.value)
+                  setFormError('')
+                },
+              },
+              searchSources.map((row) =>
+                h('option', { key: row.id, value: row.id }, stringOr(row.label, row.id)),
+              ),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'dsh-mb-field' },
+            h('label', { className: 'dsh-mb-label', htmlFor: queryId }, t('importDiscoverQuery')),
+            h('input', {
+              id: queryId,
+              className: 'dsh-mb-input',
+              type: 'text',
+              value: query,
+              maxLength: MAX_IMPORT_QUERY_LENGTH,
+              placeholder: t('importDiscoverQueryPlaceholder'),
+              autoComplete: 'off',
+              spellCheck: false,
+              onChange: (event) => {
+                setQuery(event.currentTarget.value)
+                setFormError('')
+              },
+              onKeyDown: (event) => {
+                if (event.key !== 'Enter') return
+                event.preventDefault()
+                void onSubmit()
+              },
+            }),
+          ),
+          h(
+            'div',
+            { className: 'dsh-mb-import-row' },
+            supportedPlatforms.length > 0
+              ? h(
+                  'div',
+                  { className: 'dsh-mb-field' },
+                  h('label', { className: 'dsh-mb-label', htmlFor: platformId }, t('importDiscoverPlatform')),
+                  h(
+                    'select',
+                    {
+                      id: platformId,
+                      className: 'dsh-mb-input',
+                      value: platform,
+                      onChange: (event) => setPlatform(event.currentTarget.value),
+                    },
+                    supportedPlatforms.map((value) =>
+                      h(
+                        'option',
+                        { key: value, value },
+                        value === 'web' ? t('importPlatformWeb') : t('importPlatformIos'),
+                      ),
+                    ),
+                  ),
+                )
+              : null,
+            h(
+              'div',
+              { className: 'dsh-mb-field dsh-mb-import-limit' },
+              h('label', { className: 'dsh-mb-label', htmlFor: limitId }, t('importDiscoverLimit')),
+              h('input', {
+                id: limitId,
+                className: 'dsh-mb-input',
+                type: 'number',
+                inputMode: 'numeric',
+                min: 1,
+                max: MAX_DISCOVER_LIMIT,
+                step: 1,
+                value: limit,
+                onChange: (event) => {
+                  setLimit(event.currentTarget.value)
+                  setFormError('')
+                },
+              }),
+            ),
+          ),
+          mobbinUnavailable
+            ? h(
+                'div',
+                { className: 'dsh-mb-import-hint' },
+                h('p', { className: 'dsh-mb-hint' }, t('importMobbinUnavailable', { path: configPath })),
+              )
+            : null,
+          h('p', { className: 'dsh-mb-hint' }, t('importDiscoverHint')),
+        )
+      }
+
+      const renderResult = () => {
+        if (result === null) return null
+        const shown = result.failures.slice(0, MAX_IMPORT_FAILURES_SHOWN)
+        return h(
+          'div',
+          { className: 'dsh-mb-import-summary', role: 'status' },
+          h('span', { className: 'dsh-mb-label' }, t('importResultsTitle')),
+          h(
+            'div',
+            { className: 'dsh-mb-import-counts' },
+            h(
+              'span',
+              { className: 'dsh-mb-meta-pill dsh-mb-import-count--added' },
+              t('importAddedCount', { count: result.imported }),
+            ),
+            h(
+              'span',
+              { className: 'dsh-mb-meta-pill dsh-mb-import-count--duplicates' },
+              t('importDuplicateCount', { count: result.duplicates }),
+            ),
+            h(
+              'span',
+              { className: 'dsh-mb-meta-pill dsh-mb-import-count--failed' },
+              t('importFailedCount', { count: result.failures.length }),
+            ),
+          ),
+          result.failures.length === 0
+            ? h('p', { className: 'dsh-mb-hint' }, t('importNoFailures'))
+            : h(
+                'ul',
+                { className: 'dsh-mb-import-failures' },
+                shown.map((failure, index) =>
+                  h(
+                    'li',
+                    { key: index, className: 'dsh-mb-import-failure' },
+                    importFailureText(t, failure),
+                  ),
+                ),
+              ),
+          result.failures.length > shown.length
+            ? h(
+                'p',
+                { className: 'dsh-mb-hint' },
+                t('importMoreFailures', { count: result.failures.length - shown.length }),
+              )
+            : null,
+          h(
+            'div',
+            { className: 'dsh-mb-import-actions' },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-mb-btn',
+                disabled: copying,
+                title: workflow === '' ? t('importWorkflowUnavailable') : t('importCopyWorkflow'),
+                'aria-label': t('importCopyWorkflow'),
+                onClick: () => {
+                  void onCopyWorkflow()
+                },
+              },
+              h(IconCopy, { size: 13 }),
+              copying ? t('importCopyingWorkflow') : t('importCopyWorkflow'),
+            ),
+            copyStatus !== '' ? h('span', { className: 'dsh-mb-saved', role: 'status' }, copyStatus) : null,
+          ),
+        )
+      }
+
+      const renderTagField = () =>
+        h(
+          'div',
+          { className: 'dsh-mb-field' },
+          h('span', { className: 'dsh-mb-label', id: tagsId }, t('tags')),
+          tags.length > 0
+            ? h(
+                'div',
+                { className: 'dsh-mb-tag-editor' },
+                tags.map((tag) =>
+                  h(
+                    'span',
+                    { key: tag, className: 'dsh-mb-tag-chip' },
+                    h('span', null, tag),
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'dsh-mb-tag-remove',
+                        'aria-label': t('tagRemove', { tag }),
+                        title: t('tagRemove', { tag }),
+                        onClick: () => removeTag(tag),
+                      },
+                      h(IconClose, { size: 9 }),
+                    ),
+                  ),
+                ),
+              )
+            : null,
+          h(
+            'div',
+            { className: 'dsh-mb-tag-add' },
+            h('input', {
+              className: 'dsh-mb-input',
+              type: 'text',
+              value: tagInput,
+              maxLength: MAX_TAG_LENGTH,
+              list: TAG_SUGGESTIONS_ID,
+              placeholder: t('tagPlaceholder'),
+              'aria-labelledby': tagsId,
+              'aria-describedby': tagError === '' ? undefined : tagErrorId,
+              'aria-invalid': tagError === '' ? undefined : 'true',
+              onChange: (event) => {
+                setTagInput(event.currentTarget.value)
+                setTagError('')
+              },
+              onKeyDown: (event) => {
+                if (event.key !== 'Enter') return
+                event.preventDefault()
+                addTag()
+              },
+            }),
+            h('button', { type: 'button', className: 'dsh-mb-btn', onClick: addTag }, t('addTag')),
+          ),
+          tagError !== '' ? h('span', { className: 'dsh-mb-dirty', id: tagErrorId, role: 'alert' }, tagError) : null,
+        )
+
+      const renderPin = () =>
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-mb-switch',
+            role: 'switch',
+            'aria-checked': pinned ? 'true' : 'false',
+            onClick: () => setPinned(!pinned),
+          },
+          h(
+            'span',
+            { className: 'dsh-mb-switch-track', 'aria-hidden': 'true' },
+            h('span', { className: 'dsh-mb-switch-knob' }),
+          ),
+          h('span', { className: 'dsh-mb-switch-text' }, t('importPin')),
+        )
+
+      return h(
+        'div',
+        {
+          className: 'dsh-mb-merge-overlay',
+          onClick: (event) => {
+            if (event.target === event.currentTarget) props.onClose()
+          },
+          onKeyDown,
+        },
+        h(
+          'div',
+          {
+            ref: dialogRef,
+            className: 'dsh-mb-merge-dialog dsh-mb-import-dialog',
+            role: 'dialog',
+            'aria-modal': 'true',
+            'aria-labelledby': headingId,
+          },
+          h(
+            'div',
+            { className: 'dsh-mb-merge-head' },
+            h('h2', { id: headingId, className: 'dsh-mb-merge-title' }, t('importTitle')),
+            h(
+              'button',
+              {
+                ref: closeRef,
+                type: 'button',
+                className: 'dsh-mb-btn dsh-mb-btn--icon',
+                'aria-label': t('importClose'),
+                title: t('importClose'),
+                onClick: props.onClose,
+              },
+              h(IconClose, { size: 12 }),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'dsh-mb-merge-body' },
+            h(
+              'div',
+              { className: 'dsh-mb-import-modes', role: 'group', 'aria-label': t('importModeLabel') },
+              modeButton('link', t('importTabLink')),
+              modeButton('discover', t('importTabDiscover')),
+            ),
+            mode === 'link' ? renderLinkForm() : renderDiscoverForm(),
+            renderTagField(),
+            renderPin(),
+            formError !== ''
+              ? h('p', { className: 'dsh-mb-merge-error', role: 'alert' }, formError)
+              : null,
+            renderResult(),
+            h(
+              'div',
+              { className: 'dsh-mb-merge-actions' },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-mb-btn dsh-mb-btn--primary',
+                  disabled: busy,
+                  'aria-busy': busy ? 'true' : undefined,
+                  onClick: () => {
+                    void onSubmit()
+                  },
+                },
+                busy
+                  ? t('importSubmitting')
+                  : mode === 'link'
+                    ? t('importSubmitLinks')
+                    : t('importSubmitDiscover'),
+              ),
+              h('button', { type: 'button', className: 'dsh-mb-btn', onClick: props.onClose }, t('importDone')),
+            ),
+          ),
+        ),
+      )
+    }
+
     // ---------------------------------------------------------------------------
     // Panel page
     // ---------------------------------------------------------------------------
@@ -3312,6 +4162,7 @@ window.__ModuleLoader__.load({
       const [lightboxId, setLightboxId] = useState(null)
       const [mergeOpen, setMergeOpen] = useState(false)
       const [helpOpen, setHelpOpen] = useState(false)
+      const [importOpen, setImportOpen] = useState(false)
       const dragDepth = useRef(0)
       const fileInputRef = useRef(null)
       const replaceInputRef = useRef(null)
@@ -3328,9 +4179,12 @@ window.__ModuleLoader__.load({
       const helpOpenRef = useRef(false)
       const reorderDragIdRef = useRef(null)
       const helpOpenerRef = useRef(null)
+      const importOpenerRef = useRef(null)
+      const importOpenRef = useRef(false)
       const visibleIdsRef = useRef([])
       mergeOpenRef.current = mergeOpen
       helpOpenRef.current = helpOpen
+      importOpenRef.current = importOpen
       reorderDragIdRef.current = reorderDragId
 
       useEffect(() => {
@@ -3352,7 +4206,7 @@ window.__ModuleLoader__.load({
         const onKey = (event) => {
           if (event === null || event === undefined || event.defaultPrevented) return
           if (event.metaKey === true || event.ctrlKey === true || event.altKey === true) return
-          if (mergeOpenRef.current || lightboxIdRef.current !== null) return
+          if (mergeOpenRef.current || importOpenRef.current || lightboxIdRef.current !== null) return
           if (isEditableTarget(event.target)) return
           if (event.key === '?') {
             event.preventDefault()
@@ -3378,7 +4232,7 @@ window.__ModuleLoader__.load({
         const onPaste = (event) => {
           if (event === null || event === undefined) return
           // The tag manager / shortcuts dialogs own the page while open.
-          if (mergeOpenRef.current || helpOpenRef.current) return
+          if (mergeOpenRef.current || importOpenRef.current || helpOpenRef.current) return
           const clipboard = event.clipboardData
           if (clipboard === null || clipboard === undefined) return
           if (isEditableTarget(event.target)) return
@@ -3392,7 +4246,7 @@ window.__ModuleLoader__.load({
           if (event.defaultPrevented) return
           const modified = event.metaKey === true || event.ctrlKey === true
           if (modified && event.altKey !== true && (event.key === 'a' || event.key === 'A')) {
-            if (mergeOpenRef.current || helpOpenRef.current) return
+            if (mergeOpenRef.current || importOpenRef.current || helpOpenRef.current) return
             if (lightboxIdRef.current !== null) return
             if (isEditableTarget(event.target)) return
             if (getSnapshot().pendingSelectId !== undefined) return
@@ -3415,7 +4269,7 @@ window.__ModuleLoader__.load({
             return
           }
           // Dialog overlays own Esc while they are open (their handlers close them).
-          if (mergeOpenRef.current || helpOpenRef.current) return
+          if (mergeOpenRef.current || importOpenRef.current || helpOpenRef.current) return
           // The lightbox owns Esc while it is open (its own handler closes it).
           if (lightboxIdRef.current !== null) return
           if (isEditableTarget(event.target)) return
@@ -4701,6 +5555,22 @@ window.__ModuleLoader__.load({
                 {
                   type: 'button',
                   className: 'dsh-mb-btn',
+                  'aria-haspopup': 'dialog',
+                  'aria-label': t('addFromLink'),
+                  title: t('addFromLink'),
+                  onClick: (event) => {
+                    importOpenerRef.current = event.currentTarget
+                    setImportOpen(true)
+                  },
+                },
+                h(IconLink, { size: 13 }),
+                t('addFromLink'),
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-mb-btn',
                   disabled: state.uploading || pasting,
                   onClick: () => {
                     void onPasteImage()
@@ -4785,6 +5655,22 @@ window.__ModuleLoader__.load({
             },
             h(IconClipboard, { size: 14 }),
             h('span', { className: 'dsh-mb-btn-text' }, pasting ? t('pastingImage') : t('pasteImage')),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-mb-btn',
+              'aria-haspopup': 'dialog',
+              'aria-label': t('addFromLink'),
+              title: t('addFromLink'),
+              onClick: (event) => {
+                importOpenerRef.current = event.currentTarget
+                setImportOpen(true)
+              },
+            },
+            h(IconLink, { size: 13 }),
+            h('span', { className: 'dsh-mb-btn-text' }, t('addFromLink')),
           ),
           h(
             'button',
@@ -4959,6 +5845,13 @@ window.__ModuleLoader__.load({
               t,
               openerRef: mergeOpenerRef,
               onClose: closeTagManager,
+            })
+          : null,
+        importOpen
+          ? h(ImportDialog, {
+              t,
+              openerRef: importOpenerRef,
+              onClose: () => setImportOpen(false),
             })
           : null,
         dragActive

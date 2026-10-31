@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.3.0 — 2026-10-29
+
+### Added
+
+- **Inspiration intake from links.** The new **Add from link** dialog captures
+  public page URLs (Open Graph/Twitter preview image, title, author, site,
+  description, canonical URL) and direct image URLs, with source links kept on
+  every reference. New Host endpoints: `GET /moodboard/api/sources` and
+  `POST /moodboard/api/import` (`urls`, `paths`, or `source` + `query`).
+- **Mobbin and Are.na discovery.** Mobbin screens can be searched and imported
+  through the official REST API (`MOBBIN_API_KEY`, Team/Enterprise; image URLs
+  are downloaded immediately because they expire). Are.na public search works
+  without a key. Provider names, platforms, app names and source URLs become
+  tags/notes.
+- **Browser-MCP bridge.** The `moodboard` tool's new `import` action accepts
+  absolute local screenshot paths, so a Chrome DevTools MCP or Playwright MCP
+  capture of a logged-in/bot-protected site (Dribbble, Mobbin web UI) can be
+  added without manual upload.
+- **Reference-to-component workflow.** New `moodboard` tool actions `sources`
+  and `workflow`, a `moodboard:inspiration-workflow` system-prompt section, a
+  copyable workflow in the panel, and `docs/INSPIRATION-WORKFLOW.md` covering
+  collect → curate → extract → translate → build → verify → record, plus the
+  source matrix and browser-MCP setup.
+- **SSRF-safe source fetching in a dependency-free module.** `sources.js`
+  validates http(s) URLs, blocks loopback/private hosts and redirect escapes,
+  caps page/image sizes, applies timeouts, and never logs secrets or bytes.
+
+### Changed
+
+- `sources.js` joins the published bundle (`package.json` `files`).
+- The panel header and empty state offer **Add from link**; the import dialog
+  supports Link and Discover modes with per-item results and silent board
+  refresh.
+- The import dialog now uses the panel's selected-chip treatment for its mode
+  switch, standard 32px action buttons, and a compact Results field so it
+  matches the rest of the panel at both widths and themes.
+- README and the build contract document the new routes, actions and data file;
+  the panel screenshot is refreshed and the dialog has its own screenshot.
+
 ## 0.2.11 — 2026-10-28
 
 ### Changed

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile, mkdtemp, mkdir, rm, rename } from 'node:fs/promises'
+import { copyFile, readFile, mkdtemp, mkdir, rm, rename, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
@@ -45,7 +45,13 @@ test('host half exports name, inject and apply', async () => {
 
 test('host half imports only node builtins and registers its surfaces', async () => {
   const source = await read('index.js')
-  assert.doesNotMatch(source, /from\s+['"](?!node:)/)
+  const specifiers = [...source.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((match) => match[1])
+  for (const specifier of specifiers) {
+    assert.ok(
+      specifier.startsWith('node:') || specifier === './sources.js',
+      `unexpected host import: ${specifier}`,
+    )
+  }
   for (const anchor of [
     'ctx.webServer.register',
     'ctx.tools.register',
@@ -211,11 +217,12 @@ async function withBoard(run, prepare = async () => {}) {
     process.env.DSH_HOME = root
     let handler, tool
     const imageBytes = new Map()
+    const sections = []
     apply({
       effect: (fn) => fn(),
       webServer: { register: (route) => { handler = route.handler; return () => {} } },
       tools: { register: (value) => { tool = value; return () => {} } },
-      systemPrompt: { section: () => () => {} },
+      systemPrompt: { section: (value) => { sections.push(value); return () => {} } },
       connection: { admit: () => ({ peer: { principal: { kind: 'owner' } } }) },
       logger: { warn() {} },
       attachments: {
@@ -239,7 +246,7 @@ async function withBoard(run, prepare = async () => {}) {
       })
       setImmediate(() => { if (body !== undefined) req.emit('data', Buffer.from(JSON.stringify(body))); req.emit('end') })
     })
-    await run({ request, tool, root })
+    await run({ request, tool, root, sections, imageBytes })
   } finally {
     if (oldHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = oldHome
@@ -962,5 +969,348 @@ test('an agent upload over real HTTP reaches the polling client without a reload
     assert.equal(patched.status, 200)
     assert.equal(await plugin.pullBoardRevision(), true)
     assert.equal(plugin.getSnapshot().board.images[0].pinned, true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 0.3.0 — inspiration intake (host half)
+// ---------------------------------------------------------------------------
+
+/** A real 1x1 PNG, used as the fake upstream image payload. */
+const PNG_BYTES = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+)
+
+const IMPORT_PAGE_URL = 'https://93.184.216.34/preview'
+const IMPORT_IMAGE_URL = 'https://93.184.216.34/hero.png'
+
+/** Deterministic fetch for capture tests: fake HTML pages + one fake image. */
+function fakeImportFetch(pages, imageUrl = IMPORT_IMAGE_URL, imageBytes = PNG_BYTES) {
+  const fetchImpl = async (url) => {
+    const key = String(url)
+    const html = pages.get(key)
+    if (html !== undefined) {
+      return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } })
+    }
+    if (key === imageUrl) {
+      return new Response(imageBytes, { status: 200, headers: { 'content-type': 'image/png' } })
+    }
+    return new Response('not found', { status: 404, headers: { 'content-type': 'text/plain' } })
+  }
+  fetchImpl.calls = []
+  const tracked = async (url, init) => {
+    fetchImpl.calls.push(String(url))
+    return fetchImpl(url, init)
+  }
+  tracked.calls = fetchImpl.calls
+  return tracked
+}
+
+/** Fake HTML page whose OG metadata points at the fake image URL. */
+function previewPage({ title, description, imageUrl = IMPORT_IMAGE_URL, siteName = 'Studio Example' }) {
+  return `<!doctype html><html><head><title>Fallback title</title>
+<meta property="og:title" content="${title}">
+<meta property="og:description" content="${description}">
+<meta property="og:image" content="${imageUrl}">
+<meta property="og:site_name" content="${siteName}">
+</head><body></body></html>`
+}
+
+/** Run a callback with a deterministic global fetch installed. */
+async function withFakeFetch(pages, run, imageUrl) {
+  const originalFetch = globalThis.fetch
+  const fetchImpl = fakeImportFetch(pages, imageUrl)
+  globalThis.fetch = fetchImpl
+  try {
+    await run(fetchImpl)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+}
+
+async function withCleanMobbinKey(run) {
+  const previous = process.env.MOBBIN_API_KEY
+  delete process.env.MOBBIN_API_KEY
+  try {
+    await run()
+  } finally {
+    if (previous === undefined) delete process.env.MOBBIN_API_KEY
+    else process.env.MOBBIN_API_KEY = previous
+  }
+}
+
+test('GET /api/sources reports availability, the config path and the workflow, re-reading config live', async () => {
+  await withBoard(async ({ request, root }) => {
+    await withCleanMobbinKey(async () => {
+      const first = await request('GET', '/api/sources')
+      assert.equal(first.status, 200)
+      assert.equal(first.body.ok, true)
+      assert.equal(first.body.configPath, join(root, 'moodboard/sources.json'))
+      assert.ok(first.body.workflow.length > 0 && first.body.workflow.length <= 2200)
+      assert.match(first.body.workflow, /Reference-to-component workflow/)
+      assert.match(first.body.workflow, /borrow/)
+      assert.match(first.body.workflow, /branding, copy, logos and assets/)
+
+      const byId = Object.fromEntries(first.body.sources.map((source) => [source.id, source]))
+      assert.equal(byId.web.available, true)
+      assert.equal(byId.arena.available, true)
+      assert.equal(byId.mobbin.available, false)
+      assert.match(byId.mobbin.detail, /MOBBIN_API_KEY/)
+      assert.equal(byId.dribbble.available, false)
+
+      // The config file is re-read on every call, so no Host restart is needed.
+      await mkdir(join(root, 'moodboard'), { recursive: true })
+      await writeFile(join(root, 'moodboard/sources.json'), JSON.stringify({ mobbinApiKey: 'file-key' }))
+      const second = await request('GET', '/api/sources')
+      assert.equal(second.body.sources.find((source) => source.id === 'mobbin').available, true)
+
+      // The environment key wins over the file.
+      await rm(join(root, 'moodboard/sources.json'))
+      process.env.MOBBIN_API_KEY = 'env-key'
+      try {
+        const third = await request('GET', '/api/sources')
+        assert.equal(third.body.sources.find((source) => source.id === 'mobbin').available, true)
+      } finally {
+        delete process.env.MOBBIN_API_KEY
+      }
+    })
+  })
+})
+
+test('POST /api/import captures a link preview, merges metadata, persists bytes and dedupes by sourceUrl', async () => {
+  await withBoard(async ({ request, root }) => {
+    const pages = new Map([
+      [IMPORT_PAGE_URL, previewPage({ title: 'Editorial dashboard reference', description: 'Calm spacing and warm neutrals.' })],
+    ])
+    await withFakeFetch(pages, async () => {
+      const result = await request('POST', '/api/import', {
+        urls: [IMPORT_PAGE_URL],
+        tags: ['dashboard'],
+        notes: 'Keep the spacing rhythm',
+        pinned: true,
+      })
+      assert.equal(result.status, 200)
+      assert.equal(result.body.ok, true)
+      assert.deepEqual(result.body.failures, [])
+      assert.equal(result.body.duplicates.length, 0)
+      assert.equal(result.body.imported.length, 1)
+      const image = result.body.imported[0]
+      assert.equal(image.sourceUrl, IMPORT_PAGE_URL)
+      assert.equal(image.name, 'Editorial dashboard reference')
+      assert.deepEqual(image.tags, ['web', '93.184.216.34', 'dashboard'])
+      assert.ok(image.notes.startsWith('Keep the spacing rhythm\n\n'), 'user notes come first')
+      assert.match(image.notes, /Captured from Studio Example/)
+      assert.equal(image.pinned, true)
+      assert.equal(image.mediaType, 'image/png')
+      assert.ok(image.bytes > 0)
+
+      // The normalized attachment reference is persisted on the board...
+      const board = JSON.parse(await readFile(join(root, 'moodboard/board.json'), 'utf8'))
+      assert.equal(board.images.length, 1)
+      assert.equal(board.images[0].sourceUrl, IMPORT_PAGE_URL)
+      assert.equal(board.images[0].attachment.mediaType, 'image/png')
+      assert.ok(board.images[0].attachment.attachmentId.length > 0)
+      // ...and the stored bytes are served back through the image route.
+      const served = await request('GET', image.imageUrl.replace('/moodboard', ''))
+      assert.equal(served.status, 200)
+      assert.deepEqual(Buffer.from(served.body), PNG_BYTES)
+
+      // A second request for the same URL is a duplicate, not a new image.
+      const again = await request('POST', '/api/import', { urls: [IMPORT_PAGE_URL] })
+      assert.equal(again.status, 200)
+      assert.equal(again.body.imported.length, 0)
+      assert.equal(again.body.duplicates.length, 1)
+      assert.equal(again.body.duplicates[0].id, image.id)
+      assert.equal((await request('GET', '/api/state')).body.board.images.length, 1)
+
+      // Item failures keep HTTP 200 and never abort the request.
+      const failed = await request('POST', '/api/import', { urls: ['not-a-url'] })
+      assert.equal(failed.status, 200)
+      assert.equal(failed.body.ok, true)
+      assert.equal(failed.body.imported.length, 0)
+      assert.equal(failed.body.failures.length, 1)
+      assert.equal(failed.body.failures[0].code, 'invalid-url')
+    })
+
+    // Malformed requests still use the normal error envelope.
+    const mixed = await request('POST', '/api/import', { urls: [IMPORT_PAGE_URL], paths: ['/tmp/x.png'] })
+    assert.equal(mixed.status, 400)
+    assert.equal(mixed.body.error.code, 'invalid-body')
+    const badLimit = await request('POST', '/api/import', { source: 'arena', query: 'dashboard', limit: 99 })
+    assert.equal(badLimit.status, 400)
+    assert.equal(badLimit.body.error.code, 'invalid-body')
+  })
+})
+
+test('POST /api/import imports local screenshot paths and reports per-file failures', async () => {
+  await withBoard(async ({ request, root }) => {
+    const fixture = join(root, 'capture.png')
+    const result = await request('POST', '/api/import', { paths: [fixture], tags: ['local'], notes: 'Captured with browser MCP' })
+    assert.equal(result.status, 200)
+    assert.equal(result.body.ok, true)
+    assert.equal(result.body.imported.length, 1)
+    const image = result.body.imported[0]
+    assert.equal(image.name, 'capture.png')
+    assert.equal(image.sourceUrl, '')
+    assert.deepEqual(image.tags, ['file', 'local'])
+    assert.equal(image.notes, 'Captured with browser MCP')
+
+    const missing = await request('POST', '/api/import', { paths: [join(root, 'missing.png')] })
+    assert.equal(missing.status, 200)
+    assert.equal(missing.body.imported.length, 0)
+    assert.equal(missing.body.failures.length, 1)
+    assert.equal(missing.body.failures[0].code, 'file-not-found')
+  }, async (dir) => {
+    await copyFile(new URL('test/fixtures/harness-light-reference.png', root), join(dir, 'capture.png'))
+  })
+})
+
+test('import reports duplicates before stopping at the board capacity limit', async () => {
+  const secondUrl = 'https://93.184.216.34/second'
+  const pages = new Map([
+    [IMPORT_PAGE_URL, previewPage({ title: 'Duplicated reference', description: 'Already collected.' })],
+    [secondUrl, previewPage({ title: 'Fresh reference', description: 'Would be new.' })],
+  ])
+  await withBoard(async ({ request }) => {
+    await withFakeFetch(pages, async () => {
+      const result = await request('POST', '/api/import', { urls: [IMPORT_PAGE_URL, secondUrl] })
+      assert.equal(result.status, 200)
+      assert.equal(result.body.ok, true)
+      assert.equal(result.body.imported.length, 0)
+      assert.equal(result.body.duplicates.length, 1, 'a reference already on the board is a duplicate even when full')
+      assert.equal(result.body.duplicates[0].sourceUrl, IMPORT_PAGE_URL)
+      assert.equal(result.body.failures.length, 1)
+      assert.equal(result.body.failures[0].code, 'board-full')
+    })
+  }, async (dir) => {
+    const images = []
+    for (let index = 0; index < 200; index += 1) {
+      images.push({
+        id: `mb_${index.toString(16).padStart(12, '0')}`,
+        name: `reference-${index}.png`,
+        attachment: { attachmentId: `att-${index}`, mediaType: 'image/png', bytes: 10, width: 1, height: 1 },
+        tags: [],
+        notes: '',
+        sourceUrl: index === 0 ? IMPORT_PAGE_URL : '',
+        pinned: false,
+        order: index,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      })
+    }
+    await mkdir(join(dir, 'moodboard'), { recursive: true })
+    await writeFile(
+      join(dir, 'moodboard/board.json'),
+      JSON.stringify({ version: 1, updatedAt: '2026-01-01T00:00:00.000Z', nextOrder: 200, images }),
+    )
+  })
+})
+
+test('POST /api/import refuses an unavailable search source with the route-level 503 code', async () => {
+  await withBoard(async ({ request }) => {
+    await withCleanMobbinKey(async () => {
+      const result = await request('POST', '/api/import', { source: 'mobbin', query: 'checkout paywall' })
+      assert.equal(result.status, 503)
+      assert.equal(result.body.ok, false)
+      assert.equal(result.body.error.code, 'source-unavailable')
+      assert.match(result.body.error.message, /MOBBIN_API_KEY/)
+    })
+  })
+})
+
+test('moodboard tool imports, lists sources and returns the workflow; import image blocks cap at six', async () => {
+  await withBoard(async ({ tool }) => {
+    const pages = new Map()
+    for (let index = 1; index <= 7; index += 1) {
+      pages.set(
+        `https://93.184.216.34/p${index}`,
+        previewPage({ title: `Reference ${index}`, description: `Idea number ${index}.` }),
+      )
+    }
+    await withFakeFetch(pages, async () => {
+      const imported = await tool.execute({ action: 'import', urls: [...pages.keys()], tags: ['batch'], pinned: true })
+      assert.equal(imported.ok, true)
+      assert.equal(imported.action, 'import')
+      assert.equal(imported.total, 7)
+      assert.equal(imported.fallback, false)
+      assert.equal(imported.images.length, 7)
+      assert.deepEqual(imported.duplicates, [])
+      assert.deepEqual(imported.failures, [])
+      assert.ok(imported.images.every((image) => image.tags.includes('batch')))
+      assert.ok(imported.images.every((image) => image.pinned))
+
+      const blocks = tool.output.render({ action: 'import' }, imported)
+      assert.equal(blocks[0].type, 'text')
+      assert.match(blocks[0].text, /Imported 7 references/)
+      assert.equal(blocks.filter((block) => block.type === 'image').length, 6)
+      assert.equal(blocks[1].attachment.attachmentId, imported.images[0].attachment.attachmentId)
+      assert.match(blocks.at(-1).text, /1 more imported reference image/)
+    })
+
+    const sources = await tool.execute({ action: 'sources' })
+    assert.equal(sources.ok, true)
+    assert.equal(sources.action, 'sources')
+    assert.ok(sources.sources.some((source) => source.id === 'web'))
+    assert.match(sources.brief, /MOBBIN_API_KEY/)
+    assert.match(sources.brief, /Browser MCP bridge/)
+    assert.match(sources.brief, /Config: /)
+    const sourceBlocks = tool.output.render({ action: 'sources' }, sources)
+    assert.equal(sourceBlocks.length, 1)
+    assert.equal(sourceBlocks[0].type, 'text')
+
+    const workflow = await tool.execute({ action: 'workflow' })
+    assert.equal(workflow.ok, true)
+    assert.equal(workflow.action, 'workflow')
+    assert.equal(workflow.workflow, workflow.brief.split('\n\n---\n\n')[0])
+    assert.match(workflow.brief, /Reference-to-component workflow/)
+    assert.match(workflow.brief, /Active moodboard style guide \(7 pinned references\)/)
+    assert.equal(tool.output.render({ action: 'workflow' }, workflow).length, 1)
+
+    // The import action requires exactly one intake mode.
+    await assert.rejects(tool.execute({ action: 'import' }), /exactly one/)
+    await assert.rejects(tool.execute({ action: 'import', urls: [], paths: ['/tmp/x.png'] }), /exactly one/)
+    await assert.rejects(tool.execute({ action: 'import', source: 'arena', query: '' }), /query/)
+  })
+})
+
+test('tool import reports an unavailable source as a tool value instead of crashing', async () => {
+  await withBoard(async ({ tool }) => {
+    await withCleanMobbinKey(async () => {
+      const value = await tool.execute({ action: 'import', source: 'mobbin', query: 'paywall checkout' })
+      assert.equal(value.ok, false)
+      assert.equal(value.action, 'import')
+      assert.equal(value.error.code, 'source-unavailable')
+      assert.match(value.error.message, /MOBBIN_API_KEY/)
+      const blocks = tool.output.render({ action: 'import' }, value)
+      assert.equal(blocks.length, 1)
+      assert.equal(blocks[0].type, 'text')
+      assert.match(blocks[0].text, /MOBBIN_API_KEY/)
+    })
+  })
+})
+
+test('the inspiration-workflow prompt section appears with image blocks and drops on an empty board', async () => {
+  await withBoard(async ({ request, sections }) => {
+    const byName = (name) => sections.find((section) => section.name === name)
+    assert.equal(sections.length, 2)
+    const styleGuide = byName('moodboard:style-guide')
+    const inspiration = byName('moodboard:inspiration-workflow')
+    assert.equal(styleGuide.order, 2450)
+    assert.equal(inspiration.order, 2455)
+    assert.equal(await styleGuide.text(), '')
+    assert.equal(await inspiration.text(), '')
+
+    await request('POST', '/api/images', upload)
+    const text = await inspiration.text()
+    assert.ok(text.length > 0 && text.length <= 700, `inspiration section must be 1..700 chars, got ${text.length}`)
+    assert.match(text, /pinned moodboard references define/)
+    assert.match(text, /borrow/)
+    assert.match(text, /avoid/)
+    assert.match(text, /branding, copy, logos, assets/)
+    assert.match(text, /action: "import"/)
+    assert.match(text, /action: "workflow"/)
+    assert.ok(!text.includes('Reference-to-component workflow'), 'the prompt must not repeat the whole workflow')
+    assert.match(await styleGuide.text(), /action: "active"/)
   })
 })

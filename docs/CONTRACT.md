@@ -438,3 +438,307 @@ Behaviour:
   theme tokens only for chrome colors.
 - Report back: what you implemented, any deviation from this contract, and
   the exact commands you ran to check syntax.
+
+---
+
+# 0.3.0 — Inspiration intake (added 2026-10-29)
+
+Owner map addition: `sources.js` (source adapters) belongs to **source-dev**;
+`index.js` stays **host-dev**; `client.js` stays **client-dev**; this contract,
+`package.json`, `README*.md`, `CHANGELOG.md`, `docs/*.md` stay **Lead**.
+`test/plugin.test.mjs` belongs to **host-dev**; `test/sources.test.mjs` to
+**source-dev**; `test/client-import.test.mjs` to **client-dev**.
+
+The goal: turn the moodboard from a passive gallery into an intake + translation
+workflow — pull references from links and inspiration sources, keep provenance,
+then translate them into the project's own components rather than copying.
+
+## New file: `sources.js`
+
+Plain ESM, `node:` builtins only, no third-party imports, no plugin context.
+It performs network reads and returns **normalized drafts**; it never touches
+`ctx.attachments`, the board store, or HTTP.
+
+```js
+export const SOURCE_IDS = ['web', 'mobbin', 'arena']
+export const MAX_IMPORT_URLS = 20
+export const MAX_IMPORT_PATHS = 20
+export const MAX_DISCOVER_LIMIT = 12
+export const MAX_PAGE_BYTES = 4 * 1024 * 1024
+export const MAX_IMAGE_BYTES = 12 * 1024 * 1024
+
+export class SourceError extends Error { code } // code is a string
+export function readSourceConfig(dataDir)       // never throws
+export function sourceCatalog(config)          // array of catalog rows
+export function detectImageMediaType(bytes)    // media type or ''
+export function extractPageMetadata(html, baseUrl) // pure
+export async function captureReferences(urls, options)   // -> { drafts, failures }
+export async function discoverReferences(input, options) // -> { drafts, failures }
+export async function readReferenceFiles(paths, options) // -> { drafts, failures }
+```
+
+**Draft** (one candidate reference):
+
+```js
+{ name, notes, tags: string[], sourceUrl, bytes: Uint8Array, mediaType, origin }
+```
+
+`origin` is `'web' | 'mobbin' | 'arena' | 'file'`. `mediaType` is one of the
+four accepted image media types. `sourceUrl` is an http(s) URL when known,
+otherwise `''`. `name` ≤ 200 chars; `notes` ≤ 4000; `tags` are raw provider tags
+(host normalizes and caps).
+
+**Failure** (one skipped input): `{ input, code, message }` where `input` is
+the URL/path/candidate label and `message` is short and safe. Codes:
+`invalid-url`, `invalid-path`, `file-not-found`, `unsupported-url`,
+`unsupported-media-type`, `blocked-source`, `no-preview-image`,
+`source-unauthorized`, `source-plan-required`, `rate-limited`,
+`image-too-large`, `invalid-image`, `upstream-error`.
+
+### Config
+
+`readSourceConfig(dataDir)` reads `<dataDir>/sources.json` (bounded 64 KiB,
+JSON object) and returns `{ mobbinApiKey, mobbinKeySource }` where
+`mobbinKeySource` is `'env' | 'file' | null`. `MOBBIN_API_KEY` in the process
+environment wins over the file. A missing, malformed, or oversized file means
+no key; never throw and never log the key. The file is optional; only Mobbin
+needs it.
+
+`sourceCatalog(config)` returns:
+
+```js
+[
+  { id: 'web',     kind: 'capture', label: 'Any link', available: true,
+    detail: 'Capture a public page preview or an image URL.' },
+  { id: 'mobbin',  kind: 'search',  label: 'Mobbin', available: Boolean(key),
+    detail: key ? 'Mobbin REST API connected.' : 'Set MOBBIN_API_KEY (Team/Enterprise) to search Mobbin screens.',
+    platforms: ['ios', 'web'] },
+  { id: 'arena',   kind: 'search',  label: 'Are.na', available: true,
+    detail: 'Public Are.na search, no key needed.' },
+  { id: 'dribbble', kind: 'browser', label: 'Dribbble', available: false,
+    detail: 'Dribbble blocks server-side capture; use the browser MCP workflow or upload a screenshot.' }
+]
+```
+
+### URL safety (mandatory)
+
+- Only `http:` / `https:`; max 2000 chars; no embedded username/password.
+- Reject `localhost`, `*.localhost`, `*.local`, `*.internal`, and IP literals in
+  private/reserved ranges (IPv4 RFC1918, loopback, link-local, CGNAT; IPv6
+  loopback, ULA, link-local, IPv4-mapped private).
+- Resolve other hostnames with `node:dns/promises` `lookup(host, { all: true })`
+  and reject if **any** address is private; DNS failures are `upstream-error`.
+- Follow at most 3 redirects manually, re-validating every hop.
+- Timeout every request (default 15 s page, 25 s API); cap page bodies at
+  `MAX_PAGE_BYTES` and images at `MAX_IMAGE_BYTES` while reading.
+- Page/image capture sends a normal browser `user-agent` plus
+  `dsh-moodboard/0.3`. Discovery API requests instead send the honest
+  `dsh-moodboard/0.3 (+https://github.com/Stijnus/dsh-moodboard)` user-agent:
+  Are.na rejects a browser UA as unidentified automation. Never forward cookies
+  or auth headers to arbitrary hosts.
+
+### Capture (`captureReferences`)
+
+- Accepts 1..20 URLs. Dedupe within the batch by exact URL.
+- If a URL serves an image content type (or bytes with an image signature),
+  capture it directly: name from the URL path, notes `Image from <host>.`,
+  tags `['web', <host>]`, sourceUrl = final URL.
+- Otherwise require an HTML page. Extract in this priority order:
+  `og:image`, `og:image:url`, `twitter:image`, `twitter:image:src`,
+  `link[rel=image_src]`, `meta[itemprop=image]`, then the first absolute
+  `<img src>`. Resolve relative URLs against the final page URL.
+- Title: `og:title`, `twitter:title`, `<title>`, `og:site_name`, hostname.
+- Description: `og:description`, `meta[name=description]`,
+  `twitter:description`. Author: `meta[name=author]`, `article:author`,
+  `twitter:creator`. Site: `og:site_name` or hostname.
+- Name: title or site name, collapsed and clipped; fall back to hostname.
+- Notes: `Captured from <site> (<host>) — <title> by <author>. <description>`
+  with empty parts omitted, clipped to 4000. Tags: `['web', <host>]`.
+- SourceUrl: the canonical URL when present, else the final URL.
+- A Dribbble host that returns a bot-challenge/empty body is
+  `blocked-source` with the browser-MCP guidance; do not retry aggressively.
+- No preview image → `no-preview-image` (suggest uploading a screenshot).
+- Options: `{ fetchImpl, lookupImpl, timeoutMs }` for tests; defaults use
+  global `fetch` and `dns.lookup`. User `tags`/`notes` are merged by the host,
+  not by this adapter.
+
+### Discover (`discoverReferences`)
+
+Input `{ source: 'mobbin' | 'arena', query, platform, limit }`. Query 1..500,
+platform `ios|web` (Mobbin only, default `ios`), limit 1..12 (default 6).
+Returns drafts and per-candidate failures; one bad image never aborts the batch.
+
+**Mobbin** — `POST https://api.mobbin.com/v1/screens/search`, header
+`authorization: Bearer <key>`, body
+`{ query, platform, mode: 'standard', limit }`. Map 401 → `source-unauthorized`,
+403 → `source-plan-required`, 429 → `rate-limited` (respect `Retry-After` when
+present), other non-2xx → `upstream-error`. For each screen download
+`screen.image.url` (or deprecated `screen.image_url`) **immediately** because
+those URLs expire. Draft: sourceUrl `mobbin_url`, name
+`<app_name> — <query>`, notes mention Mobbin, app name, platform, query and the
+source URL, tags `['mobbin', platform, app_name]`.
+
+**Are.na** — `GET https://api.are.na/v2/search?q=<query>&per=<wider page>`. Its
+`per` is a shared result budget across channels and blocks, so a small value can
+return zero blocks; request `min(100, max(20, limit * 4))` and take the first
+`limit` image blocks. Use `blocks[].image.large.url || display.url ||
+original.url`. sourceUrl is `block.source.url` when http(s), else
+`https://www.are.na/block/<id>`; name is `block.title` / source title /
+`Are.na reference`; notes mention Are.na and the block id; tags `['arena']`.
+
+Options include `{ config, fetchImpl, lookupImpl, endpoints, timeoutMs }`;
+`endpoints` defaults to the production URLs and exists only for deterministic
+tests.
+
+### Local files (`readReferenceFiles`)
+
+Agent-facing bridge for screenshots captured by browser MCP or the user. Accept
+1..20 **absolute** regular-file paths, each ≤ 12 MiB, detect the media type from
+`node:fs` bytes (PNG/JPEG/WebP/GIF), name from the basename, sourceUrl `''`,
+tags `['file']`, origin `file`. Reject directories, missing files, non-images.
+
+## Host: new HTTP routes
+
+Add to the existing `/moodboard` prefix router:
+
+| Method + path | Body | Success |
+|---|---|---|
+| `GET /moodboard/api/sources` | — | `{ ok, sources, workflow, configPath }` |
+| `POST /moodboard/api/import` | see below | `{ ok, imported, duplicates, failures }` |
+
+`GET /api/sources` uses `readSourceConfig(dataDir)` on every call (so editing
+the config needs no restart), `sourceCatalog`, the workflow text, and the
+absolute config path.
+
+`POST /api/import` body (balanced 128 KiB):
+
+```json
+{ "urls": ["https://…"], "tags": ["dashboard"], "notes": "", "pinned": false }
+{ "source": "mobbin", "query": "checkout paywall", "platform": "ios", "limit": 6, "tags": [], "pinned": false }
+{ "paths": ["/tmp/mobbin-shot.png"], "tags": [], "notes": "" }
+```
+
+Exactly one intake mode (`urls` | `paths` | `source`+`query`); otherwise
+`invalid-body`. `urls`/`paths` are arrays of 1..20 strings; `source` is
+`mobbin|arena`; `query` 1..500 chars; `platform` `ios|web`; `limit` 1..12.
+`tags`, `notes`, `pinned` are the existing validated fields.
+
+Import flow is shared by the HTTP route and the agent tool:
+
+1. Call the adapter; keep `drafts` and `failures`.
+2. For each draft: dedupe by non-empty `sourceUrl` already on the board →
+   append the existing `ImageView` to `duplicates` and skip the save.
+3. Board capacity: stop importing and append a `board-full` failure for each
+   remaining draft.
+4. Merge notes: user notes first, blank line, provider notes (clip 4000).
+5. Merge tags: provider tags first, then user tags; `normalizeTagList`.
+6. Save through `saveImageBytes`, create the entry, apply `pinned`.
+7. Return `{ ok: true, imported: [ImageView], duplicates: [ImageView],
+   failures: [{ input, code, message }] }` with HTTP 200 even when some or all
+   items failed. Only malformed requests / auth fail with the normal envelope.
+8. Never log fetched bytes, notes, URLs' query strings, or API keys.
+
+New error codes for route-level failures: `source-unavailable` (503),
+`upstream-error` (502), `rate-limited` (429). Item failures use the same codes
+inside `failures` and never change the batch status.
+
+## Host: agent tool additions
+
+`TOOL_ACTIONS` becomes:
+`active | list | query | get | brief | import | sources | workflow`.
+
+New parameters:
+
+```
+urls?: string[]        // import: capture public links
+paths?: string[]       // import: local screenshots (browser MCP bridge)
+source?: 'mobbin'|'arena' // import: discover and add
+query?: string         // import: search query for the source
+platform?: 'ios'|'web' // import: Mobbin platform
+limit?: number         // import: 1..12 results
+tags?: string[]        // import: extra tags (also query, existing)
+notes?: string         // import: user note
+pinned?: boolean       // import: pin imported references
+```
+
+- `import` requires exactly one mode; it runs the shared import flow and returns
+  the imported images (image blocks capped at 6) plus a compact summary and the
+  failure list.
+- `sources` returns the catalog as text (available/needs key), the config path,
+  and the browser-MCP bridge hint.
+- `workflow` returns the workflow text plus the active brief; no image blocks.
+- `import` output uses `images` for imported references, `total` = imported
+  count, `fallback: false`, plus optional `failures`, `duplicates`, `sources`,
+  `workflow` fields. Existing actions keep their shape.
+- Tool description must name the new abilities: capturing link previews,
+  Mobbin/Are.na discovery, importing local screenshots, listing sources, and the
+  reference-to-component workflow.
+
+## Host: workflow text + prompt section
+
+Add a constant `INSPIRATION_WORKFLOW` (plain Markdown, ≤ 2200 chars) used by
+`GET /api/sources`, `action: "workflow"`, and the panel copy action. Required
+content:
+
+1. Collect 5–10 references for the same job; keep source links.
+2. Curate with role tags (layout, type, palette, component, motion); pin the
+   2–4 that define the direction.
+3. Extract what to borrow and what not to copy (structure, spacing rhythm, type
+   scale, color roles, radius/elevation, icon style, motion); exclude branding,
+   copy, logos, and assets.
+4. Translate into the project's own tokens and content for the page archetype.
+5. Build one representative component per role with states, dark mode,
+   keyboard/focus, responsive behavior and reduced motion.
+6. Verify at the same viewport: structure/rhythm, then type/color, then
+   interaction; check contrast, hit targets, overflow and motion fallbacks.
+7. Record the component and reuse the pinned references as the style guide;
+   delete references that no longer define the direction.
+
+Add a second system-prompt section `moodboard:inspiration-workflow`
+(order `2455`, ≤ 700 chars). Text is `''` when the board has no images;
+otherwise it says pinned references are the direction, to compare several,
+reuse structure/spacing/type/color roles without copying branding/copy/assets,
+to annotate borrow vs avoid, and points at `moodboard` actions `import` and
+`workflow`. Do not repeat the whole workflow in the prompt.
+
+## Client additions
+
+- Header action **"Add from link"** (`ImportDialog`) next to Paste/Add images;
+  empty state also offers it.
+- Dialog has two modes:
+  - **Link**: textarea for 1..20 URLs (newline or whitespace separated), tags
+    input, pin toggle, submit "Add references".
+  - **Discover**: source select for available search sources (Mobbin/Are.na),
+    query input, platform select for Mobbin, limit 1..12, tags, pin toggle,
+    submit "Search & add". If Mobbin is unavailable, show the config hint
+    (`MOBBIN_API_KEY` or `<configPath>`), not a disabled dead end.
+- Loads `GET /api/sources` when opened (cache per mount); result panel shows
+  added / already-on-board / failed counts, first few failure messages, and a
+  **Copy workflow** action using the returned workflow text.
+- Calls `POST /api/import`; on success refreshes the board (silent refresh, no
+  skeleton), closes on "Done" only; errors use the existing error banner.
+- Accessible dialog: `role="dialog"`, `aria-modal="true"`, labelled, focus
+  trapped, Esc closes, restore focus to the opener; theme tokens only; en+zh
+  strings through the locale dictionaries. No `window.confirm`.
+- Client must not fetch third-party URLs directly; all fetching is host-side.
+
+## Docs (Lead)
+
+`docs/INSPIRATION-WORKFLOW.md` documents the workflow, the source matrix
+(any link, Mobbin REST/MCP, Are.na, Dribbble browser capture), MCP setup in
+`~/.dsh/cordis.patch.yml` (`chrome-devtools-mcp` / `@playwright/mcp`), the
+import tool bridge, licensing/respect-for-designers rules, and current
+limitations (Mobbin MCP OAuth is not supported by `dsh-mcp-client`; use the
+REST API or browser capture). README gets a short version and links it.
+CHANGELOG gets a 0.3.0 entry. `package.json` bumps to `0.3.0` and ships
+`sources.js`.
+
+## Definition of done (0.3.0)
+
+- `npm test` passes (existing tests updated where the contract intentionally
+  changed; new unit/integration coverage for sources, imports, tool actions).
+- `node --check index.js client.js sources.js` passes; no third-party imports.
+- `npm pack --dry-run` includes `sources.js`.
+- No secrets logged; no network call happens during plugin activation; all
+  intake is lazy per request.
+- The panel still loads and works with no `sources.json` (only Mobbin disabled).

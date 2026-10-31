@@ -19,7 +19,11 @@ dsh plugin --profile web add dsh-moodboard
 - **固定（pinned）风格指南**：只把定义产品视觉语言的那几张交给智能体。
 - **图库过滤与搜索**，以及带元数据的检查器面板。
 - **自动同步**：智能体通过 HTTP 接口新增、修改或删除参考后，面板会在几秒内自动更新，无需刷新页面或重启桌面应用。
-- **智能体工具 `moodboard`**：`active` 取风格指南、`query` 按标签查、`list` 列全部、`get` 取单张完整备注、`brief` 只取文字版风格描述。
+- **从链接收录**：在面板的 **Add from link** 里粘贴网页地址，自动保存预览图、标题、作者、站点和来源链接；直链图片也可以。
+- **Mobbin / Are.na 搜索**：用官方 Mobbin REST API（Team/Enterprise 密钥）或公开的 Are.na 搜索直接批量收录参考，并保留应用名与来源链接。
+- **浏览器 MCP 桥接**：智能体用 Chrome DevTools MCP / Playwright MCP 截图后，通过 `moodboard action="import" paths=[...]` 直接导入。
+- **从参考到组件的工作流**：`moodboard` 工具新增 `sources` 与 `workflow`，系统提示词也内置「收集 → 筛选 → 提取 → 转译 → 构建 → 校验 → 记录」方法；说明见 [docs/INSPIRATION-WORKFLOW.md](./docs/INSPIRATION-WORKFLOW.md)。
+- **智能体工具 `moodboard`**：`active` 取风格指南、`query` 按标签查、`list` 列全部、`get` 取单张完整备注、`brief` 只取文字版风格描述、`import` 收录参考、`sources` 查看已配置来源、`workflow` 取工作流。
 - **HTTP 接口**：`/moodboard/api/*` 供面板与程序化读取，图片按附件版本号缓存。
 
 ## 要求

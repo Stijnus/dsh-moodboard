@@ -1,7 +1,7 @@
 {
   "name": "dsh-moodboard",
-  "version": "0.2.11",
-  "description": "Visual reference moodboard for DeepSeek Harness: drag-and-drop images, tags, notes, and pinned style guides the agent reads before generating UI.",
+  "version": "0.3.0",
+  "description": "Visual reference moodboard for DeepSeek Harness: capture links, Mobbin and Are.na references, pin a style guide, and turn inspiration into your own UI components.",
   "license": "MIT",
   "type": "module",
   "main": "index.js",
@@ -13,15 +13,19 @@
   },
   "files": [
     "index.js",
+    "sources.js",
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
     "README.md",
-    "CHANGELOG.md"
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "docs/CONTRACT.md",
+    "docs/INSPIRATION-WORKFLOW.md"
   ],
   "scripts": {
-    "test": "node --check index.js && node --check client.js && node --test test/plugin.test.mjs",
+    "test": "node --check index.js && node --check sources.js && node --check client.js && node --test test/plugin.test.mjs test/sources.test.mjs test/client-import.test.mjs",
     "pack:check": "npm pack --dry-run"
   },
   "keywords": [
@@ -63,8 +67,8 @@
     },
     "catalog": {
       "summary": {
-        "en": "Drop in screenshots, tag and annotate them, pin a style guide, and the agent reads those references before it designs UI.",
-        "zh": "\u62d6\u5165\u622a\u56fe\u3001\u6253\u6807\u7b7e\u4e0e\u5907\u6ce8\u3001\u56fa\u5b9a\u98ce\u683c\u6307\u5357\uff0c\u667a\u80fd\u4f53\u5728\u8bbe\u8ba1\u754c\u9762\u524d\u5148\u8bfb\u53d6\u8fd9\u4e9b\u53c2\u8003\u3002"
+        "en": "Pull references from links, Mobbin and Are.na, pin a style guide, and turn inspiration into your own UI components.",
+        "zh": "\u4ece\u94fe\u63a5\u3001Mobbin \u4e0e Are.na \u6536\u5f55\u53c2\u8003\uff0c\u56fa\u5b9a\u98ce\u683c\u6307\u5357\uff0c\u518d\u628a\u7075\u611f\u8f6c\u6210\u81ea\u5df1\u7684\u754c\u9762\u7ec4\u4ef6\u3002"
       },
       "category": "ui"
     }

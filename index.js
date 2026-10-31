@@ -5,16 +5,23 @@
  * - HTTP prefix route `/moodboard`: board state, upload, metadata patch,
  *   replace, delete, active guide, tag query, health, and raw image bytes.
  * - Agent tool `moodboard`: loads the active style guide as text + real image
- *   content blocks so the model can match the user's references.
- * - System prompt section `moodboard:style-guide`: tells the model to load the
- *   board before generating or changing UI.
+ *   content blocks so the model can match the user's references; also imports
+ *   references from links, Mobbin/Are.na search or local screenshots.
+ * - System prompt sections `moodboard:style-guide` (load the board before
+ *   generating UI) and `moodboard:inspiration-workflow` (translate references
+ *   into the project's own components).
  *
  * Board metadata lives in `<DSH_HOME>/moodboard/board.json` (atomic
  * temp+rename, serialized writes). Image bytes are only ever stored through
  * `ctx.attachments`; the board keeps the normalized attachment reference.
  *
- * Plain ESM, `node:` builtins only — this bundle has no third-party runtime
- * dependencies.
+ * Inspiration intake is delegated to the local `./sources.js` adapter module
+ * (network reads + normalized drafts). This file validates requests, dedupes
+ * against the board, merges notes/tags and persists through `ctx.attachments`;
+ * it never logs fetched bytes, notes, URL query strings or API keys.
+ *
+ * Plain ESM, `node:` builtins plus that one local module — this bundle has no
+ * third-party runtime dependencies.
  */
 
 import { randomBytes } from 'node:crypto'
@@ -22,6 +29,14 @@ import { chmod, copyFile, mkdir, readFile, rename, unlink, writeFile } from 'nod
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { Buffer } from 'node:buffer'
+
+import {
+  captureReferences,
+  discoverReferences,
+  readReferenceFiles,
+  readSourceConfig,
+  sourceCatalog,
+} from './sources.js'
 
 /** Plugin name used by the Cordis loader. */
 export const name = 'moodboard'
@@ -37,6 +52,8 @@ const PREFIX = '/moodboard'
 const BOARD_VERSION = 1
 const STYLE_GUIDE_SECTION = 'moodboard:style-guide'
 const STYLE_GUIDE_ORDER = 2450
+const INSPIRATION_SECTION = 'moodboard:inspiration-workflow'
+const INSPIRATION_ORDER = 2455
 
 /** Data model limits (CONTRACT.md). */
 const MAX_IMAGES = 200
@@ -51,6 +68,16 @@ const MAX_IMAGE_BASE64_CHARS = 32 * 1024 * 1024
 const MAX_IMAGE_BODY_BYTES = MAX_IMAGE_BASE64_CHARS + 1024 * 1024
 const MAX_PATCH_BODY_BYTES = 64 * 1024
 
+/** Inspiration intake bounds (CONTRACT.md 0.3.0). */
+const MAX_IMPORT_BODY_BYTES = 128 * 1024
+const MAX_IMPORT_URLS = 20
+const MAX_IMPORT_PATHS = 20
+const MAX_DISCOVER_QUERY_CHARS = 500
+const DEFAULT_DISCOVER_LIMIT = 6
+const MAX_DISCOVER_LIMIT = 12
+const MAX_FAILURE_INPUT_CHARS = 300
+const MAX_FAILURE_MESSAGE_CHARS = 300
+
 /** Query + brief rendering bounds. */
 const DEFAULT_QUERY_LIMIT = 50
 const MAX_QUERY_LIMIT = 200
@@ -60,7 +87,7 @@ const MAX_SECTION_CHARS = 700
 
 /** Agent tool limits. */
 const MAX_TOOL_IMAGE_BLOCKS = 6
-const TOOL_ACTIONS = ['active', 'list', 'query', 'get', 'brief']
+const TOOL_ACTIONS = ['active', 'list', 'query', 'get', 'brief', 'import', 'sources', 'workflow']
 const TOOL_ACTION_SET = new Set(TOOL_ACTIONS)
 
 const IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
@@ -71,6 +98,20 @@ const BASE64_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/
 
 const EMPTY_BRIEF =
   'The moodboard is empty. Add reference images in the Moodboard panel (drag and drop or "Add images"), then load them with the moodboard tool.'
+
+/** The reference-to-component workflow (CONTRACT.md 0.3.0, plain Markdown). */
+const INSPIRATION_WORKFLOW = `## Reference-to-component workflow
+
+1. **Collect** 5–10 references for the same job and keep their source links. Import links, Mobbin/Are.na results or local screenshots with the \`moodboard\` tool (\`action: "import"\`).
+2. **Curate** with role tags — layout, type, palette, component, motion — and pin the 2–4 references that define the direction.
+3. **Extract what to borrow and what not to copy**: structure, spacing rhythm, type scale, color roles, radius/elevation, icon style, motion. Exclude branding, copy, logos and assets.
+4. **Translate** into the project's own tokens and content for the page archetype; do not clone another product's screen.
+5. **Build one representative component per role** with states, dark mode, keyboard/focus, responsive behavior and reduced motion.
+6. **Verify at the same viewport**: structure/rhythm first, then type/color, then interaction; check contrast, hit targets, overflow and motion fallbacks.
+7. **Record the component** and reuse the pinned references as the style guide; delete references that no longer define the direction.`
+
+/** Failure text when the board already holds the maximum number of images. */
+const BOARD_FULL_MESSAGE = `the moodboard already holds the maximum of ${MAX_IMAGES} images`
 
 /** HTTP error code → status (CONTRACT.md). */
 const ERROR_STATUS = Object.freeze({
@@ -85,6 +126,9 @@ const ERROR_STATUS = Object.freeze({
   'board-full': 409,
   'storage-failed': 500,
   'method-not-allowed': 405,
+  'source-unavailable': 503,
+  'upstream-error': 502,
+  'rate-limited': 429,
 })
 
 /** One request failure carrying the contract error code. */
@@ -137,12 +181,19 @@ export function apply(ctx) {
     }),
   )
 
-  ctx.effect(() => ctx.tools.register(createMoodboardTool(store)))
+  ctx.effect(() => ctx.tools.register(createMoodboardTool(store, ctx)))
   ctx.effect(() =>
     ctx.systemPrompt.section({
       name: STYLE_GUIDE_SECTION,
       order: STYLE_GUIDE_ORDER,
       text: () => styleGuideSectionText(store),
+    }),
+  )
+  ctx.effect(() =>
+    ctx.systemPrompt.section({
+      name: INSPIRATION_SECTION,
+      order: INSPIRATION_ORDER,
+      text: () => inspirationWorkflowSectionText(store),
     }),
   )
 }
@@ -309,6 +360,8 @@ function createBoardStore(ctx) {
   }
 
   return {
+    /** Absolute moodboard data directory (board + optional sources config). */
+    dataDir,
     /** Kick off the lazy activation load (never rejects). */
     start() {
       if (started) return readyPromise
@@ -509,6 +562,12 @@ async function dispatch(store, ctx, request, response, method, segments, url) {
       case 'health':
         requireMethod(method, 'GET')
         return handleHealth(store, response)
+      case 'sources':
+        requireMethod(method, 'GET')
+        return handleSources(store, ctx, response)
+      case 'import':
+        requireMethod(method, 'POST')
+        return handleImport(store, ctx, request, response)
       case 'images':
         requireMethod(method, 'POST')
         return handleCreateImage(store, ctx, request, response)
@@ -590,6 +649,45 @@ async function handleRevision(store, response) {
 async function handleHealth(store, response) {
   await store.ready()
   sendJson(response, 200, { ok: true, version: BOARD_VERSION, images: store.current().images.length })
+}
+
+/**
+ * `GET /api/sources` — which inspiration sources are configured, where the
+ * optional config file lives, and the workflow text the panel can copy.
+ * The config is re-read on every call, so editing it needs no Host restart.
+ */
+async function handleSources(store, ctx, response) {
+  let sources
+  try {
+    sources = sourceCatalog(readSourceConfig(store.dataDir))
+  } catch (error) {
+    safeLog(ctx, 'warn', `moodboard: could not read the source catalog: ${safeMessage(error)}`)
+    sources = []
+  }
+  sendJson(response, 200, {
+    ok: true,
+    sources,
+    workflow: INSPIRATION_WORKFLOW,
+    configPath: join(store.dataDir, 'sources.json'),
+  })
+}
+
+/**
+ * `POST /api/import` — capture links, import local screenshots, or discover
+ * Mobbin/Are.na references. Item failures are reported in the body with HTTP
+ * 200; only malformed requests, auth, or a batch-level adapter failure use the
+ * error envelope.
+ */
+async function handleImport(store, ctx, request, response) {
+  const body = await readJsonBody(request, MAX_IMPORT_BODY_BYTES, 'invalid-body')
+  const plan = readImportRequest(body)
+  const result = await runImport(store, ctx, plan)
+  sendJson(response, 200, {
+    ok: true,
+    imported: result.imported.map(imageView),
+    duplicates: result.duplicates.map(imageView),
+    failures: result.failures,
+  })
 }
 
 /** `GET /api/active` */
@@ -866,6 +964,267 @@ function attachmentErrorCode(error) {
 /** `not-found` failure for an unknown image id. */
 function notFoundImage(id) {
   return httpError('not-found', `no moodboard image has id "${id}"`)
+}
+
+// ---------------------------------------------------------------------------
+// Inspiration intake: request validation + shared import flow
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate a `POST /api/import` body into an import plan. Exactly one intake
+ * mode is required: `urls` | `paths` | `source` + `query`.
+ */
+function readImportRequest(body) {
+  const urlMode = Object.hasOwn(body, 'urls')
+  const pathMode = Object.hasOwn(body, 'paths')
+  const discoverMode = Object.hasOwn(body, 'source') || Object.hasOwn(body, 'query')
+  const modes = Number(urlMode) + Number(pathMode) + Number(discoverMode)
+  if (modes !== 1) {
+    throw httpError('invalid-body', 'import requires exactly one of urls, paths, or source with query')
+  }
+
+  const tags = readOptionalTags(body)
+  const notes = readOptionalNotes(body)
+  const pinned = Object.hasOwn(body, 'pinned') ? requirePinned(body.pinned) : false
+
+  if (urlMode) {
+    return { mode: 'urls', urls: requireImportInputs(body.urls, 'urls', MAX_IMPORT_URLS), tags, notes, pinned }
+  }
+  if (pathMode) {
+    return { mode: 'paths', paths: requireImportInputs(body.paths, 'paths', MAX_IMPORT_PATHS), tags, notes, pinned }
+  }
+  if (!Object.hasOwn(body, 'source') || !Object.hasOwn(body, 'query')) {
+    throw httpError('invalid-body', 'discover import requires both source and query')
+  }
+  return {
+    mode: 'discover',
+    source: requireDiscoverSource(body.source),
+    query: requireDiscoverQuery(body.query),
+    platform: Object.hasOwn(body, 'platform') ? requireDiscoverPlatform(body.platform) : undefined,
+    limit: Object.hasOwn(body, 'limit') ? requireDiscoverLimit(body.limit) : undefined,
+    tags,
+    notes,
+    pinned,
+  }
+}
+
+/** Validate one `urls`/`paths` array: 1..max strings. */
+function requireImportInputs(value, field, max) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > max) {
+    throw httpError('invalid-body', `${field} must be an array of 1 through ${max} strings`)
+  }
+  for (const item of value) {
+    if (typeof item !== 'string') throw httpError('invalid-body', `${field} must be an array of strings`)
+  }
+  return [...value]
+}
+
+/** Validate a discover `source` id. */
+function requireDiscoverSource(value) {
+  if (value !== 'mobbin' && value !== 'arena') {
+    throw httpError('invalid-body', 'source must be "mobbin" or "arena"')
+  }
+  return value
+}
+
+/** Validate a discover `query`. */
+function requireDiscoverQuery(value) {
+  if (typeof value !== 'string') throw httpError('invalid-body', 'query must be a string')
+  const query = value.trim()
+  if (query === '' || query.length > MAX_DISCOVER_QUERY_CHARS) {
+    throw httpError('invalid-body', `query must be 1 through ${MAX_DISCOVER_QUERY_CHARS} characters`)
+  }
+  return query
+}
+
+/** Validate a Mobbin `platform`. */
+function requireDiscoverPlatform(value) {
+  if (value !== 'ios' && value !== 'web') throw httpError('invalid-body', 'platform must be "ios" or "web"')
+  return value
+}
+
+/** Validate a discover `limit`. */
+function requireDiscoverLimit(value) {
+  if (!Number.isSafeInteger(value) || value < 1 || value > MAX_DISCOVER_LIMIT) {
+    throw httpError('invalid-body', `limit must be an integer from 1 through ${MAX_DISCOVER_LIMIT}`)
+  }
+  return value
+}
+
+/**
+ * Run the adapter for one import plan.
+ * @returns the adapter result (`{ drafts, failures }`); batch-level adapter
+ *   failures become route-level `HttpError`s.
+ */
+async function collectImportDrafts(store, plan) {
+  try {
+    if (plan.mode === 'urls') return await captureReferences(plan.urls, {})
+    if (plan.mode === 'paths') return await readReferenceFiles(plan.paths, {})
+
+    const config = readSourceConfig(store.dataDir)
+    const catalog = sourceCatalog(config)
+    const entry = Array.isArray(catalog) ? catalog.find((row) => isPlainObject(row) && row.id === plan.source) : undefined
+    if (entry !== undefined && entry.available !== true) {
+      throw httpError(
+        'source-unavailable',
+        typeof entry.detail === 'string' && entry.detail !== '' ? entry.detail : 'this inspiration source is not available',
+      )
+    }
+    const input = { source: plan.source, query: plan.query }
+    if (plan.platform !== undefined) input.platform = plan.platform
+    if (plan.limit !== undefined) input.limit = plan.limit
+    return await discoverReferences(input, { config })
+  } catch (error) {
+    if (error instanceof HttpError) throw error
+    throw importAdapterError(error)
+  }
+}
+
+/** Map one thrown adapter failure to a route-level contract error. */
+function importAdapterError(error) {
+  const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : ''
+  const message = error instanceof Error ? clipText(collapseWhitespace(error.message), MAX_FAILURE_MESSAGE_CHARS) : ''
+  switch (code) {
+    case 'rate-limited':
+      return httpError('rate-limited', message || 'the inspiration source is rate-limited; retry later')
+    case 'source-unavailable':
+    case 'source-unauthorized':
+    case 'source-plan-required':
+      return httpError('source-unavailable', message || 'the inspiration source is not available')
+    default:
+      return httpError('upstream-error', message || 'the inspiration source request failed')
+  }
+}
+
+/** Normalize adapter failures into the safe `{ input, code, message }` shape. */
+function normalizeImportFailures(values) {
+  if (!Array.isArray(values)) return []
+  const failures = []
+  for (const value of values) {
+    if (!isPlainObject(value)) continue
+    failures.push({
+      input: typeof value.input === 'string' ? clipText(collapseWhitespace(value.input), MAX_FAILURE_INPUT_CHARS) : '',
+      code: typeof value.code === 'string' && value.code !== '' ? clipText(value.code, 64) : 'upstream-error',
+      message:
+        typeof value.message === 'string' && value.message !== ''
+          ? clipText(collapseWhitespace(value.message), MAX_FAILURE_MESSAGE_CHARS)
+          : 'the reference could not be imported',
+    })
+  }
+  return failures
+}
+
+/**
+ * The shared import flow (HTTP route + agent tool).
+ *
+ * Adapters produce normalized drafts; this function dedupes by `sourceUrl`,
+ * enforces board capacity, merges user notes/tags, stores bytes through
+ * `ctx.attachments` and commits the board in one serialized write.
+ * @returns `{ imported, duplicates, failures }` (stored image entries).
+ */
+async function runImport(store, ctx, plan) {
+  const collected = await collectImportDrafts(store, plan)
+  const drafts = isPlainObject(collected) && Array.isArray(collected.drafts) ? collected.drafts : []
+  const failures = normalizeImportFailures(isPlainObject(collected) ? collected.failures : undefined)
+
+  return store.mutate(async (draftBoard) => {
+    const imported = []
+    const duplicates = []
+    const bySourceUrl = new Map()
+    for (const image of draftBoard.images) {
+      if (image.sourceUrl !== '' && !bySourceUrl.has(image.sourceUrl)) bySourceUrl.set(image.sourceUrl, image)
+    }
+
+    let full = false
+    for (const value of drafts) {
+      if (!isPlainObject(value)) {
+        failures.push({ input: '', code: 'invalid-image', message: 'the source returned an invalid reference' })
+        continue
+      }
+      const sourceUrl = normalizeSourceUrl(typeof value.sourceUrl === 'string' ? value.sourceUrl : '')
+      const label = importDraftLabel(value, sourceUrl)
+
+      // 1. Dedupe: a reference already on the board is reported, not saved.
+      if (sourceUrl !== '' && bySourceUrl.has(sourceUrl)) {
+        duplicates.push(bySourceUrl.get(sourceUrl))
+        continue
+      }
+
+      // 2. Capacity: once full, every remaining draft becomes a failure.
+      if (full || draftBoard.images.length >= MAX_IMAGES) {
+        full = true
+        failures.push({ input: label, code: 'board-full', message: BOARD_FULL_MESSAGE })
+        continue
+      }
+
+      // 3. Save through the attachment service; one bad draft never aborts the batch.
+      let stored
+      try {
+        stored = await saveImportDraft(ctx, value)
+      } catch (error) {
+        failures.push(importFailureFromError(label, error))
+        continue
+      }
+
+      const image = createImageEntry(draftBoard, {
+        ref: stored.ref,
+        name: stored.name,
+        tags: normalizeTagList([...(Array.isArray(value.tags) ? value.tags : []), ...plan.tags], false),
+        notes: mergeImportNotes(plan.notes, value.notes),
+        sourceUrl,
+      })
+      if (plan.pinned) {
+        image.pinned = true
+        image.updatedAt = new Date().toISOString()
+      }
+      imported.push(image)
+      if (sourceUrl !== '') bySourceUrl.set(sourceUrl, image)
+    }
+
+    return { imported, duplicates, failures }
+  })
+}
+
+/** Validate + store the image bytes of one normalized adapter draft. */
+async function saveImportDraft(ctx, draft) {
+  const bytes = draft.bytes
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) {
+    throw httpError('invalid-image', 'the source returned no image bytes')
+  }
+  const mediaType = typeof draft.mediaType === 'string' ? draft.mediaType.trim().toLowerCase() : ''
+  if (!IMAGE_MEDIA_TYPE_SET.has(mediaType)) {
+    throw httpError('unsupported-media-type', 'the reference image is not a supported image type')
+  }
+  const name = sanitizeName(typeof draft.name === 'string' ? draft.name : '')
+  const ref = await saveImageBytes(ctx, { bytes, mediaType, name })
+  return { ref, name }
+}
+
+/** A safe label for an imported draft in a failure row. */
+function importDraftLabel(draft, sourceUrl) {
+  if (sourceUrl !== '') return clipText(sourceUrl, MAX_FAILURE_INPUT_CHARS)
+  const name = sanitizeName(typeof draft.name === 'string' ? draft.name : '')
+  return clipText(name === '' ? 'reference' : name, MAX_FAILURE_INPUT_CHARS)
+}
+
+/** One item failure derived from a save error. */
+function importFailureFromError(label, error) {
+  const code = error instanceof HttpError ? error.code : 'upstream-error'
+  const raw = error instanceof Error ? collapseWhitespace(error.message) : ''
+  return {
+    input: clipText(label, MAX_FAILURE_INPUT_CHARS),
+    code,
+    message: clipText(raw, MAX_FAILURE_MESSAGE_CHARS) || 'the reference could not be imported',
+  }
+}
+
+/** Merge user notes first, blank line, provider notes (clipped to 4000). */
+function mergeImportNotes(userNotes, providerNotes) {
+  const user = typeof userNotes === 'string' ? userNotes.slice(0, MAX_NOTES_CHARS) : ''
+  const provider = typeof providerNotes === 'string' ? providerNotes.slice(0, MAX_NOTES_CHARS) : ''
+  if (provider === '') return user
+  if (user === '') return provider
+  return `${user}\n\n${provider}`.slice(0, MAX_NOTES_CHARS)
 }
 
 // ---------------------------------------------------------------------------
@@ -1389,6 +1748,19 @@ function styleGuideSectionText(store) {
   return clipText(text, MAX_SECTION_CHARS)
 }
 
+/**
+ * Dynamic `moodboard:inspiration-workflow` text. Reference-to-component
+ * guidance for boards that hold at least one image; `''` otherwise.
+ */
+function inspirationWorkflowSectionText(store) {
+  if (!store.isLoaded()) return ''
+  if (store.current().images.length === 0) return ''
+  const text =
+    '## Inspiration workflow\n\n' +
+    "The pinned moodboard references define this project's direction. Compare several references instead of copying one: note what to borrow (structure, spacing rhythm, type scale, color roles, radius, motion) and what to avoid (branding, copy, logos, assets), then translate them into the project's own tokens and components. Use the `moodboard` tool with `action: \"import\"` to add links, Mobbin/Are.na results or local screenshots, and `action: \"workflow\"` for the full reference-to-component workflow."
+  return clipText(text, MAX_SECTION_CHARS)
+}
+
 // ---------------------------------------------------------------------------
 // Agent tool
 // ---------------------------------------------------------------------------
@@ -1434,6 +1806,33 @@ const TOOL_IMAGE_SCHEMA = {
   required: ['id', 'name', 'tags', 'notes', 'sourceUrl', 'pinned', 'mediaType', 'bytes', 'width', 'height', 'attachment'],
 }
 
+/** Output-schema fragment for one import failure. */
+const TOOL_FAILURE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    input: { type: 'string', description: 'The URL, path or candidate that was skipped.' },
+    code: { type: 'string', description: 'Stable failure code.' },
+    message: { type: 'string', description: 'Short, safe explanation.' },
+  },
+  required: ['input', 'code', 'message'],
+}
+
+/** Output-schema fragment for one inspiration source catalog row. */
+const TOOL_SOURCE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    id: { type: 'string' },
+    kind: { type: 'string' },
+    label: { type: 'string' },
+    available: { type: 'boolean' },
+    detail: { type: 'string' },
+    platforms: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['id', 'kind', 'label', 'available', 'detail'],
+}
+
 /** Model-facing tool value schema. */
 const TOOL_OUTPUT_SCHEMA = {
   type: 'object',
@@ -1445,6 +1844,10 @@ const TOOL_OUTPUT_SCHEMA = {
     images: { type: 'array', items: TOOL_IMAGE_SCHEMA },
     total: { type: 'integer' },
     fallback: { type: 'boolean' },
+    failures: { type: 'array', items: TOOL_FAILURE_SCHEMA },
+    duplicates: { type: 'array', items: TOOL_IMAGE_SCHEMA },
+    sources: { type: 'array', items: TOOL_SOURCE_SCHEMA },
+    workflow: { type: 'string' },
     error: {
       type: 'object',
       additionalProperties: false,
@@ -1456,11 +1859,11 @@ const TOOL_OUTPUT_SCHEMA = {
 }
 
 /** Build the `moodboard` tool definition bound to one board store. */
-function createMoodboardTool(store) {
+function createMoodboardTool(store, ctx) {
   return {
     name: 'moodboard',
     description:
-      "The user's moodboard of visual reference images. Returns the active style guide (pinned images, or the whole board when none are pinned) with names, tags, notes and the reference images themselves. Use `active` before generating or changing app UI and match the references' typography, color palette, spacing, radius, iconography and component styling exactly. `query` filters by tags, `get` returns one image by id with complete notes, tags and source URL, `list` returns every image's metadata as text, and `brief` returns only the text style brief.",
+      "The user's moodboard of visual reference images and the inspiration-intake workflow. `active` returns the active style guide (pinned images, or the whole board when none are pinned) with names, tags, notes and the reference images themselves — use it before generating or changing app UI and match the references' typography, color palette, spacing, radius, iconography and component styling exactly. `import` captures public link previews (`urls`), imports local screenshots from a browser MCP (`paths`), or discovers Mobbin/Are.na results (`source` + `query`); `sources` lists which inspiration sources are configured; `workflow` returns the reference-to-component workflow to translate references instead of copying them. `query` filters by tags, `get` returns one image by id with complete notes, tags and source URL, `list` returns every image's metadata as text, and `brief` returns only the text style brief.",
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -1473,7 +1876,7 @@ function createMoodboardTool(store) {
         tags: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Tags to filter by when action is "query"; case-insensitive.',
+          description: 'Tags to filter by when action is "query"; extra tags for action "import". Case-insensitive.',
         },
         match: {
           type: 'string',
@@ -1488,6 +1891,44 @@ function createMoodboardTool(store) {
           type: 'boolean',
           description: 'Attach the reference images themselves. Defaults to true for active/query/get and false for list/brief.',
         },
+        urls: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'action "import": 1–20 public page or image URLs to capture as references.',
+        },
+        paths: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'action "import": 1–20 absolute local screenshot paths (e.g. captured by a browser MCP).',
+        },
+        source: {
+          type: 'string',
+          enum: ['mobbin', 'arena'],
+          description: 'action "import": discover and add search results from this inspiration source (requires query).',
+        },
+        query: {
+          type: 'string',
+          description: 'action "import": search query for the chosen source (1–500 characters).',
+        },
+        platform: {
+          type: 'string',
+          enum: ['ios', 'web'],
+          description: 'action "import" with source "mobbin": platform to search. Defaults to "ios".',
+        },
+        limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: MAX_DISCOVER_LIMIT,
+          description: `action "import": how many results to add (1–${MAX_DISCOVER_LIMIT}). Defaults to ${DEFAULT_DISCOVER_LIMIT}.`,
+        },
+        notes: {
+          type: 'string',
+          description: 'action "import": a note stored on every added reference.',
+        },
+        pinned: {
+          type: 'boolean',
+          description: 'action "import": pin the added references as the active style guide.',
+        },
       },
       required: [],
     },
@@ -1501,7 +1942,7 @@ function createMoodboardTool(store) {
       }),
     },
     async execute(args) {
-      return executeMoodboard(store, args)
+      return executeMoodboard(store, ctx, args)
     },
     presentCall(args) {
       const action = isPlainObject(args) && typeof args.action === 'string' ? args.action : 'active'
@@ -1512,7 +1953,7 @@ function createMoodboardTool(store) {
 }
 
 /** Validate tool args and build the tool value. */
-async function executeMoodboard(store, rawArgs) {
+async function executeMoodboard(store, ctx, rawArgs) {
   const args = isPlainObject(rawArgs) ? rawArgs : {}
   const action = args.action === undefined ? 'active' : args.action
   if (typeof action !== 'string' || !TOOL_ACTION_SET.has(action)) {
@@ -1537,6 +1978,63 @@ async function executeMoodboard(store, rawArgs) {
     throw new Error('moodboard: includeImages must be a boolean')
   }
 
+  if (action === 'sources') {
+    const config = readSourceConfig(store.dataDir)
+    let sources
+    try {
+      sources = sourceCatalog(config)
+    } catch {
+      sources = []
+    }
+    return {
+      ok: true,
+      action: 'sources',
+      brief: buildSourcesText(sources, join(store.dataDir, 'sources.json')),
+      images: [],
+      total: 0,
+      fallback: false,
+      sources,
+    }
+  }
+
+  if (action === 'import') {
+    let plan
+    try {
+      plan = readImportRequest(toolImportBody(args))
+    } catch (error) {
+      throw new Error(`moodboard: ${error instanceof Error ? error.message : 'invalid import parameters'}`)
+    }
+    let result
+    try {
+      result = await runImport(store, ctx, plan)
+    } catch (error) {
+      // Route-level intake failures (source unavailable, upstream error, rate
+      // limit) become a tool value so the model can report them gracefully.
+      if (!(error instanceof HttpError)) throw error
+      return {
+        ok: false,
+        action: 'import',
+        brief: '',
+        images: [],
+        duplicates: [],
+        failures: [],
+        total: 0,
+        fallback: false,
+        error: { code: error.code, message: error.message },
+      }
+    }
+    return {
+      ok: true,
+      action: 'import',
+      brief: importSummary(result),
+      images: result.imported.map(toolImage),
+      duplicates: result.duplicates.map(toolImage),
+      failures: result.failures,
+      total: result.imported.length,
+      fallback: false,
+    }
+  }
+
   let id = ''
   if (action === 'get') {
     if (typeof args.id !== 'string' || args.id.trim() === '') throw new Error('moodboard: id is required for action "get"')
@@ -1545,6 +2043,22 @@ async function executeMoodboard(store, rawArgs) {
 
   await store.ready()
   const ordered = sortImages(store.current().images)
+
+  if (action === 'workflow') {
+    const pinned = ordered.filter((image) => image.pinned)
+    const fallback = pinned.length === 0
+    const selection = fallback ? ordered : pinned
+    const activeBrief = buildBrief(selection, fallback ? 'fallback' : 'pinned')
+    return {
+      ok: true,
+      action: 'workflow',
+      brief: `${INSPIRATION_WORKFLOW}\n\n---\n\n${activeBrief}`,
+      images: [],
+      total: 0,
+      fallback: false,
+      workflow: INSPIRATION_WORKFLOW,
+    }
+  }
 
   if (action === 'get') {
     const image = ordered.find((entry) => entry.id === id)
@@ -1606,6 +2120,47 @@ async function executeMoodboard(store, rawArgs) {
   }
 }
 
+/** Project the relevant tool args into an import-body shape. */
+function toolImportBody(args) {
+  const body = {}
+  for (const field of ['urls', 'paths', 'source', 'query', 'platform', 'limit', 'tags', 'notes', 'pinned']) {
+    if (args[field] !== undefined) body[field] = args[field]
+  }
+  return body
+}
+
+/** Compact text summary of one import run for the model. */
+function importSummary(result) {
+  const parts = [
+    result.imported.length === 0
+      ? 'No new references were imported.'
+      : `Imported ${result.imported.length} reference${result.imported.length === 1 ? '' : 's'}.`,
+  ]
+  if (result.duplicates.length > 0) {
+    parts.push(`${result.duplicates.length} already on the moodboard and skipped.`)
+  }
+  if (result.failures.length > 0) {
+    parts.push(`${result.failures.length} input${result.failures.length === 1 ? '' : 's'} failed; see failures.`)
+  }
+  return parts.join(' ')
+}
+
+/** Text rendering of the inspiration-source catalog for the model. */
+function buildSourcesText(sources, configPath) {
+  const rows = Array.isArray(sources) ? sources : []
+  const lines = rows.map((source) => {
+    const platforms = Array.isArray(source.platforms) && source.platforms.length > 0 ? ` (${source.platforms.join(', ')})` : ''
+    const state = source.available === true ? 'available' : 'needs setup'
+    return `- ${source.label} [${source.id}, ${source.kind}${platforms}] — ${state}: ${source.detail}`
+  })
+  return [
+    'Moodboard inspiration sources:',
+    ...lines,
+    `Config: ${configPath} — set MOBBIN_API_KEY in the environment (wins) or add {"mobbinApiKey": "…"} to that file.`,
+    'Browser MCP bridge: capture a page screenshot with chrome-devtools-mcp or @playwright/mcp, then call the `moodboard` tool with `action: "import"` and `paths` pointing at the saved image files.',
+  ].join('\n')
+}
+
 /** Tool-value projection of one image, including the full attachment ref. */
 function toolImage(image) {
   const attachment = image.attachment
@@ -1647,6 +2202,21 @@ function renderToolContent(args, value) {
   }
 
   if (value.action === 'list') return [{ type: 'text', text: renderListText(value) }]
+  if (value.action === 'sources' || value.action === 'workflow') return [{ type: 'text', text: value.brief }]
+
+  if (value.action === 'import') {
+    const blocks = [{ type: 'text', text: renderImportText(value) }]
+    const selected = value.images.slice(0, MAX_TOOL_IMAGE_BLOCKS)
+    for (const image of selected) blocks.push({ type: 'image', attachment: attachmentValue(image.attachment) })
+    const omitted = value.images.length - selected.length
+    if (omitted > 0) {
+      blocks.push({
+        type: 'text',
+        text: `${omitted} more imported reference image${omitted === 1 ? '' : 's'} were not attached (max ${MAX_TOOL_IMAGE_BLOCKS} per call). Use action="list" to see every reference id.`,
+      })
+    }
+    return blocks
+  }
 
   const text = value.action === 'active' || value.action === 'query'
     ? `${value.brief}\nUse action="get" with a reference id for complete notes and source; this overview is abbreviated. Use action="list" for all reference ids.`
@@ -1664,6 +2234,21 @@ function renderToolContent(args, value) {
     }
   }
   return blocks
+}
+
+/** Text rendering of one import result: summary, skipped duplicates, failures. */
+function renderImportText(value) {
+  const sections = [value.brief]
+  if (Array.isArray(value.duplicates) && value.duplicates.length > 0) {
+    sections.push(`Already on the board: ${value.duplicates.map((image) => `${image.name} [${image.id}]`).join(', ')}`)
+  }
+  if (Array.isArray(value.failures) && value.failures.length > 0) {
+    const lines = value.failures
+      .slice(0, 20)
+      .map((failure) => `- ${failure.input !== '' ? failure.input : 'reference'}: ${failure.message} (${failure.code})`)
+    sections.push(`Failed inputs:\n${lines.join('\n')}`)
+  }
+  return sections.join('\n\n')
 }
 
 /** Whether this call emits image content blocks. */
