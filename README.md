@@ -169,6 +169,14 @@ dsh plugin --profile <profile> add dsh-moodboard
 
 Reload the Web UI if the sidebar icon does not appear immediately.
 
+Or add a plugin market index to Discover (**Plugins → Discover → Index
+sources**):
+
+- Suite index:
+  `https://raw.githubusercontent.com/Stijnus/dsh-composer-predictions/main/market-index.json`
+- Moodboard-only index:
+  `https://raw.githubusercontent.com/Stijnus/dsh-moodboard/main/market-index.json`
+
 ## Development
 
 ```bash

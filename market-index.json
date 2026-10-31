@@ -1,0 +1,73 @@
+{
+  "format": 1,
+  "title": {
+    "en": "Stijnus · Moodboard",
+    "zh": "Stijnus · 情绪板"
+  },
+  "description": {
+    "en": "Visual inspiration intake and style guide for DeepSeek Harness: pull references from links, Mobbin and Are.na, tag and annotate them, pin the style guide, and turn inspiration into your own UI components.",
+    "zh": "DeepSeek Harness 的视觉灵感收录与风格指南：从链接、Mobbin 与 Are.na 收录参考，打标签、写备注，固定风格指南，再把灵感转成自己的界面组件。"
+  },
+  "metadata": {
+    "categories": {
+      "ui-experience": {
+        "title": {
+          "en": "UI & Experience",
+          "zh": "界面与体验"
+        }
+      }
+    },
+    "labels": {},
+    "sortKeys": {}
+  },
+  "plugins": [
+    {
+      "name": "dsh-moodboard",
+      "title": {
+        "en": "Moodboard",
+        "zh": "情绪板"
+      },
+      "description": {
+        "en": "Visual inspiration intake and style guide for DeepSeek Harness: pull references from links, Mobbin and Are.na, tag and annotate them, pin the style guide, and turn inspiration into your own UI components.",
+        "zh": "DeepSeek Harness 的视觉灵感收录与风格指南：从链接、Mobbin 与 Are.na 收录参考，打标签、写备注，固定风格指南，再把灵感转成自己的界面组件。"
+      },
+      "author": "stijnus",
+      "homepage": "https://github.com/Stijnus/dsh-moodboard",
+      "repository": {
+        "url": "https://github.com/Stijnus/dsh-moodboard"
+      },
+      "metadata": {
+        "category": "ui-experience",
+        "keywords": [
+          "dsh",
+          "dsh-plugin",
+          "deepseek-harness",
+          "moodboard",
+          "style-guide",
+          "design",
+          "images",
+          "ui",
+          "inspiration",
+          "mobbin",
+          "are.na",
+          "references",
+          "设计参考",
+          "灵感"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.3.0",
+          "publishTimestamp": 1793442963,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org/"
+          },
+          "engines": {
+            "dsh": ">=0.2.1-rc.3 <0.3.0-0"
+          }
+        }
+      ]
+    }
+  ]
+}
