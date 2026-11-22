@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.3 — 2026-11-22
 
 ### Changed
 
@@ -32,6 +32,9 @@
   losslessly. Encoding uses `canvas.toBlob` + `FileReader` instead of
   `toDataURL`.
 - Every mutation response now includes `revision` and `updatedAt`.
+- CI and release workflows use `actions/checkout@v7` and `actions/setup-node@v7`
+  (Node 24 runtime), clearing GitHub's Node 20 deprecation warning.
+- README describes the new upload, duplicate and live-sync behaviour.
 
 ### Fixed
 

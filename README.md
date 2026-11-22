@@ -121,7 +121,9 @@ Full history: [CHANGELOG.md](CHANGELOG.md).
 - **Live sync**: references the agent uploads through the HTTP API (or edits
   made from another window) show up within a few seconds — no page reload and
   no desktop app restart. The panel fetches the board on activation, then a
-  cheap revision poll plus window focus / visibility checks keep it current.
+  cheap revision poll (every 3 s while the panel is open, every 30 s while it
+  is closed) plus window focus / visibility checks keep it current. Your own
+  edits apply instantly without re-reading the board.
 - **Keyboard & accessibility**: `⌘V`/Ctrl+V paste, `/` search, `⌘A` select all,
   `⌘⇧A` invert, `Alt+←/→` reorder a focused card, `←/→` browse the lightbox,
   `Esc` clear or close, and `?` for the shortcuts list. Dialogs are labelled
@@ -320,8 +322,10 @@ The current build contract for the Host and Client halves is
 `includeImages: false` suppresses image content blocks. Image content is capped
 at 6 per call. `active` and `query` return abbreviated overviews with reference
 IDs; use `get` for complete metadata, or `list` to find all reference IDs.
-`import` returns imported images, `duplicates` (already on the board) and
-per-item `failures`; a failed item never fails the whole batch.
+`import` returns imported images, `duplicates` (already on the board by source
+URL or by identical image bytes) and per-item `failures`; a failed item never
+fails the whole batch. Links already on the board are not fetched again, and
+links and discovery images are fetched four at a time.
 
 ### HTTP endpoints
 
@@ -358,8 +362,10 @@ and only re-reads the full board when either changed.
 - Metadata: `<DSH_HOME>/moodboard/board.json` (atomic writes; corrupt files are
   backed up as `board.corrupt-<timestamp>.json` and the board starts empty).
 - Images: content-addressed in the harness attachment store. They are
-  normalized on upload (WebP/JPEG, max edge 1600 px from the UI) and never
-  deleted automatically; removing a board entry only removes the reference.
+  kept as-is when they already fit (max edge 1600 px, at most 8 MiB), otherwise
+  downscaled in the UI (PNG stays lossless PNG, other formats become WebP/JPEG),
+  and never deleted automatically; removing a board entry only removes the
+  reference.
 - Source config: `<DSH_HOME>/moodboard/sources.json` (optional; currently
   `{ "mobbinApiKey": "…" }` and the snake_case `mobbin_api_key` alias). The
   environment variable `MOBBIN_API_KEY` wins. The file is re-read on every
@@ -384,9 +390,11 @@ and token table are in
 
 - Up to 200 images, 20 tags per image (48 chars each), 4000-char notes,
   200-char names and 2000-char source URLs.
-- Uploads are re-encoded client-side (max edge 1600 px, quality 0.85) before
-  upload; a source file is capped at 25 MiB and the API image payload at 32 MiB
-  of base64.
+- Uploads that already fit (max edge 1600 px, at most 8 MiB) are sent as-is,
+  which keeps screenshot text crisp and GIFs animated; larger files are
+  downscaled client-side to a 1600 px edge (PNG lossless, others WebP/JPEG at
+  quality 0.85). A source file is capped at 25 MiB and the API image payload at
+  32 MiB of base64.
 - Imports: up to 20 links or paths per call and 12 discoveries per call
   (default 6); remote pages are capped at 4 MiB and remote images at 12 MiB;
   only http(s) URLs, with private/loopback hosts blocked.
