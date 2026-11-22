@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.4 — 2026-11-22
+
+### Changed
+
+- **Thumbnails load directly.** Gallery cards, the style-guide strip, the
+  inspector preview and the lightbox now use `<img src>` on the versioned image
+  URL (native lazy loading, async decoding, browser HTTP cache) instead of
+  fetching every image into a blob. A live DeepSeek Harness web profile admits
+  these same-origin requests with the owner session cookie. If a direct load
+  ever fails, that image falls back to the previous authenticated
+  fetch-and-blob path automatically.
+
+### Verified
+
+- 0.4.3 installed from npm into a throwaway web profile: panel uploads (small
+  PNG stored unchanged, 2400 px PNG stored as 1600 px PNG, JPEG sent
+  unchanged), live sync of API writes, pin/tag/notes PATCH, active and query,
+  link import with a blocked `localhost` link, duplicate detection by link and
+  by image bytes, lightbox, bulk bar, delete, and the board surviving a full
+  Harness restart. The agent tool was not exercised (no model configured in the
+  throwaway profile). See `docs/LIVE-TEST.md`.
+
 ## 0.4.3 — 2026-11-22
 
 ### Changed

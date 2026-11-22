@@ -1739,7 +1739,7 @@ test('the lightbox is its own component that owns focus, keys and its image URL'
   const start = client.indexOf('    function Lightbox(props) {')
   assert.ok(start !== -1, 'Lightbox component exists')
   const lightbox = client.slice(start, client.indexOf('    function MoodboardPage(props) {'))
-  for (const anchor of ['useImageUrl(image)', 'closeRef.current', 'LIGHTBOX_FOCUSABLE', "event.key === 'ArrowLeft'", "addEventListener('keydown'"]) {
+  for (const anchor of ['useImageSource(image)', 'onError: onImageError', 'closeRef.current', 'LIGHTBOX_FOCUSABLE', "event.key === 'ArrowLeft'", "addEventListener('keydown'"]) {
     assert.ok(lightbox.includes(anchor), `Lightbox must own ${anchor}`)
   }
   const page = client.slice(client.indexOf('    function MoodboardPage(props) {'), client.indexOf('function ReferenceButton'))
@@ -1758,4 +1758,16 @@ test('the bulk bar is its own component that owns its tag input and delete confi
   const page = client.slice(client.indexOf('    function MoodboardPage(props) {'), client.indexOf('function ReferenceButton'))
   assert.match(page, /h\(BulkBar, \{/)
   assert.doesNotMatch(page, /renderBulkToolbar|setBulkTag|bulkConfirmRemove|runBulk/)
+})
+
+test('images load from their versioned URL and fall back to the blob path on error', async () => {
+  const client = await read('client.js')
+  const hook = client.slice(client.indexOf('    function useImageSource(image) {'), client.indexOf('    function Thumb(props) {'))
+  assert.match(hook, /useBlob \? blobUrl : image\.imageUrl/, 'direct versioned URL first')
+  assert.match(hook, /directLoadFailed\.add\(key\)/, 'a failed revision is remembered')
+  assert.match(hook, /useImageUrl\(image, useBlob\)/, 'the blob loader only runs after a failure')
+  const thumb = client.slice(client.indexOf('    function Thumb(props) {'), client.indexOf('    /** Scroll sentinel'))
+  assert.match(thumb, /loading: lazy \? 'lazy' : 'eager'/)
+  assert.match(thumb, /decoding: 'async'/)
+  assert.match(thumb, /onError,/)
 })

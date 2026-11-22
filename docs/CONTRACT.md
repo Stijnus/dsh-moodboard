@@ -387,14 +387,15 @@ Behaviour:
   owns the loading flag). Skip checks while a refresh, upload or mutation is in
   flight. The poll and its listeners must be removed on disposal (and
   reinstalled on a later mount). Opening the panel also checks once.
-- Images: fetch `imageUrl` as a blob (`fetch(url, { credentials: 'same-origin' })`),
-  cache the object URL per `id + imageUrl` in a module Map. Revoke obsolete
-  revisions on board refresh and all remaining URLs on plugin disposal; discard
-  in-flight results for images no longer on the board. Thumbnails release their
-  URL when they scroll ~1200 px out of view, and unused URLs beyond 48 are
-  revoked least-recently-used first (a re-show refetches from the HTTP cache).
-  Render `<img alt={name} decoding="async">`. Thumbnails can be CSS-sized (no
-  server-side thumbnail route).
+- Images: render `<img src={imageUrl} alt={name} decoding="async">` directly
+  (gallery cards `loading="lazy"`). The owner session cookie authorizes
+  same-origin image requests and versioned URLs are served `immutable`, so the
+  browser caches, lazy-loads and evicts them. If a direct load fails (`onError`),
+  that image revision falls back to `fetch(url, { credentials: 'same-origin' })`
+  as a blob with an object URL cached per `id + imageUrl` in a module Map:
+  obsolete revisions are revoked on board refresh, unused URLs beyond 48 are
+  revoked least-recently-used first, and all remaining URLs are revoked on
+  plugin disposal. Thumbnails can be CSS-sized (no server-side thumbnail route).
 - Upload preparation: a PNG/JPEG/WebP/GIF whose longest edge is at most
   1600 px and whose size is at most 8 MiB is uploaded unchanged (keeps crisp
   screenshot text and GIF animation). Larger files are drawn onto a canvas with

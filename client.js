@@ -1058,13 +1058,11 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Track whether an element is near the viewport. A sticky tracker (the
-     * default, used by the load-more sentinel) stays visible once seen; a
-     * non-sticky one (thumbnails) also reports leaving, so far-away images can
-     * release their object URLs.
+     * Track whether an element is near the viewport. Once visible it stays
+     * visible (used by the load-more sentinel).
      * @returns `[ref, inView]`; without IntersectionObserver it is always true.
      */
-    function useInView(enabled, sticky = true) {
+    function useInView(enabled) {
       const [inView, setInView] = useState(() => enabled !== true)
       const ref = useRef(null)
       useEffect(() => {
@@ -1072,7 +1070,7 @@ window.__ModuleLoader__.load({
           setInView(true)
           return undefined
         }
-        if (sticky && inView) return undefined
+        if (inView) return undefined
         const node = ref.current
         if (node === null || node === undefined || typeof IntersectionObserver !== 'function') {
           setInView(true)
@@ -1083,19 +1081,44 @@ window.__ModuleLoader__.load({
             for (const entry of entries) {
               if (entry.isIntersecting) {
                 setInView(true)
-                if (sticky) observer.disconnect()
+                observer.disconnect()
                 break
               }
-              if (!sticky) setInView(false)
             }
           },
-          // Thumbnails release well outside the viewport to avoid flicker.
-          { rootMargin: sticky ? '400px 0px' : '1200px 0px' },
+          { rootMargin: '400px 0px' },
         )
         observer.observe(node)
         return () => observer.disconnect()
-      }, [enabled, sticky, sticky ? inView : false])
+      }, [enabled, inView])
       return [ref, inView]
+    }
+
+    /** Image revisions whose direct URL failed to load; they use the blob path. */
+    const directLoadFailed = new Set()
+
+    /**
+     * The `src` for one image plus an `onError` handler. Images load straight
+     * from their versioned `imageUrl` (the owner session cookie authorizes
+     * same-origin image requests, the response is `immutable`, so the browser
+     * caches, lazy-loads, decodes and evicts them itself). If a direct load
+     * fails (a host that does not admit cookie-only image requests), that image
+     * revision falls back to the authenticated `fetch` + object-URL path.
+     */
+    function useImageSource(image) {
+      const key = image === null || image === undefined ? '' : imageKey(image)
+      const [useBlob, setUseBlob] = useState(() => key !== '' && directLoadFailed.has(key))
+      useEffect(() => {
+        setUseBlob(key !== '' && directLoadFailed.has(key))
+      }, [key])
+      const blobUrl = useImageUrl(image, useBlob)
+      const src = key === '' ? '' : useBlob ? blobUrl : image.imageUrl
+      const onError = () => {
+        if (key === '' || useBlob) return
+        directLoadFailed.add(key)
+        setUseBlob(true)
+      }
+      return { src, onError }
     }
 
     /** Cards rendered before the scroll sentinel loads the next page. */
@@ -3368,19 +3391,25 @@ window.__ModuleLoader__.load({
     }
 
     // ---------------------------------------------------------------------------
-    // Image thumbnail with cached blob URL
+    // Image thumbnail (direct versioned URL, blob fallback)
     // ---------------------------------------------------------------------------
 
     function Thumb(props) {
       const lazy = props.lazy === true
-      const [frameRef, inView] = useInView(lazy, false)
-      const url = useImageUrl(props.image, lazy ? inView : true)
+      const { src, onError } = useImageSource(props.image)
       const inner =
-        url === ''
+        src === ''
           ? h('span', { className: 'dsh-mb-thumb-placeholder', 'aria-hidden': 'true' }, h(IconImage, { size: 18 }))
-          : h('img', { src: url, alt: props.alt, loading: 'lazy', decoding: 'async', draggable: 'false' })
+          : h('img', {
+              src,
+              alt: props.alt,
+              loading: lazy ? 'lazy' : 'eager',
+              decoding: 'async',
+              draggable: 'false',
+              onError,
+            })
       if (!lazy) return inner
-      return h('span', { ref: frameRef, className: 'dsh-mb-thumb-frame' }, inner)
+      return h('span', { className: 'dsh-mb-thumb-frame' }, inner)
     }
 
     /** Scroll sentinel plus fallback button that reveals the next gallery page. */
@@ -5197,7 +5226,7 @@ window.__ModuleLoader__.load({
       const { image, list, t, mutating, onClose, onNavigate, onEditDetails } = props
       const dialogRef = useRef(null)
       const closeRef = useRef(null)
-      const url = useImageUrl(image)
+      const { src: url, onError: onImageError } = useImageSource(image)
 
       useEffect(() => {
         const closeButton = closeRef.current
@@ -5379,7 +5408,9 @@ window.__ModuleLoader__.load({
                   className: 'dsh-mb-lightbox-image',
                   src: url,
                   alt: t('previewAlt', { name: image.name }),
+                  decoding: 'async',
                   draggable: 'false',
+                  onError: onImageError,
                 }),
             h(
               'button',

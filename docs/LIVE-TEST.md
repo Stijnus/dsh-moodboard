@@ -1,3 +1,48 @@
+# Live Harness verification — 2026-11-22 (0.4.3 → 0.4.4)
+
+Tested in a throwaway DeepSeek Harness 0.2.2-rc.5 web profile (isolated
+`DSH_HOME`, `dsh --profile web --no-open`), driven in a browser.
+
+## 0.4.3 from npm
+
+- `dsh plugin --profile web add dsh-moodboard@0.4.3`; the bundle was listed in
+  the profile automatically. Panel and composer control rendered; empty state
+  correct.
+- Uploads through the panel's file input: a 400×300 PNG was stored byte-for-byte
+  (8,221 bytes); a 2400×1500 PNG was stored as a 1600×1000 PNG; a JPEG was sent
+  unchanged (6,907 bytes) and re-encoded by the Harness attachment store
+  (5,831 bytes stored). Each upload was one POST plus one image GET, with no
+  `/api/state` re-read; the revision poll ran every 3 s with the panel open.
+- HTTP API: `health`, `PATCH` (response revision exactly +1), `active`,
+  `query?tag=brand` (case-insensitive), `sources`. Import: a `localhost` link
+  was refused (`unsupported-url`), `example.com` reported `no-preview-image`, a
+  GitHub page failed because GitHub's preview-image host answered HTTP 429, and
+  a Wikimedia PNG imported over HTTPS through the pinned transport. Re-importing
+  it (plus a `?utm_source` variant) returned two duplicates and no new image.
+- API writes appeared in the open panel through the revision poll. Lightbox
+  (focus on Close, 2 / 5 counter, Esc), pin, Cmd+A bulk bar ("5 selected"),
+  clear, and delete with confirmation all worked; no console errors.
+- Stopped the Harness completely and restarted it: all images, pins and tags
+  were back and every image route answered 200. `board.json` is mode 0600.
+
+## 0.4.4 candidate (packed checkout)
+
+- A plain `<img src>` on `/moodboard/image/<id>?v=…` loads on the same origin
+  (the session cookie is HttpOnly and is sent with image requests); the same
+  URL from another origin is refused.
+- With the packed checkout installed, all panel images load from their direct
+  URLs (no fetch-based image requests); the lightbox loads the full image the
+  same way. In the verification harness, where direct image URLs 404, every
+  thumbnail fell back to a blob URL and rendered.
+
+## Not covered
+
+- The agent tool (`moodboard` actions) needs a configured model; the throwaway
+  profile had none.
+- The desktop app shell was not tested; only the web profile.
+
+---
+
 # Live Harness verification — 2026-10-25
 
 Tested in the open DeepSeek Harness desktop app with DeepSeek-V4.1-Flash
