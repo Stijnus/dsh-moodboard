@@ -19,6 +19,7 @@ import {
   SOURCE_IDS,
   SourceError,
   captureReferences,
+  createPinnedFetch,
   detectImageMediaType,
   discoverReferences,
   extractPageMetadata,
@@ -26,6 +27,10 @@ import {
   readSourceConfig,
   sourceCatalog,
 } from '../sources.js'
+
+/** `major.minor` of this package; the user-agent marker must follow it. */
+const PACKAGE_MINOR = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version.split('.').slice(0, 2).join('.')
+const UA_MARKER = new RegExp(`dsh-moodboard/${PACKAGE_MINOR.replace('.', '\\.')}`, 'u')
 
 // ---------------------------------------------------------------------------
 // Fixtures and helpers
@@ -347,7 +352,7 @@ test('captures a page through Open Graph metadata and its preview image', async 
   assert.equal(fetchImpl.calls.length, 2)
   assert.equal(fetchImpl.calls[1].url, 'https://example.com/media/og-image.png')
   for (const call of fetchImpl.calls) {
-    assert.match(headerOf(call.init, 'user-agent'), /dsh-moodboard\/0\.3/u)
+    assert.match(headerOf(call.init, 'user-agent'), UA_MARKER)
     assert.equal(headerOf(call.init, 'authorization'), undefined)
     assert.equal(headerOf(call.init, 'cookie'), undefined)
     assert.equal(call.init.redirect, 'manual')
@@ -907,7 +912,7 @@ test('requires a Mobbin key, including an environment fallback', async (t) => {
     { source: 'mobbin', query: 'x' },
     { fetchImpl, lookupImpl: lookupPublic, endpoints: { mobbinSearch: MOBBIN_ENDPOINT } },
   )
-  assert.deepEqual(result, { drafts: [], failures: [] })
+  assert.deepEqual(result, { drafts: [], failures: [], known: [] })
 })
 
 test('validates Mobbin discover input before fetching', async () => {
@@ -971,7 +976,7 @@ test('searches Are.na publicly and parses blocks', async () => {
       assert.equal(headerOf(init, 'cookie'), undefined)
       // Are.na blocks a browser UA as unidentified automation; API calls use
       // the honest plugin UA and never pretend to be Chrome.
-      assert.match(headerOf(init, 'user-agent') ?? '', /^dsh-moodboard\/0\.3/u)
+      assert.match(headerOf(init, 'user-agent') ?? '', new RegExp(`^${UA_MARKER.source}`, 'u'))
       assert.doesNotMatch(headerOf(init, 'user-agent') ?? '', /Mozilla/u)
       return jsonResponse({
         blocks: [
@@ -1284,4 +1289,240 @@ test('sourceCatalog reports availability and details', () => {
   assert.equal(configured[1].detail, 'Mobbin REST API connected.')
   assert.deepEqual(sourceCatalog({ mobbinApiKey: '  ' })[1].available, false)
   assert.equal(sourceCatalog({ mobbinApiKey: 'k' })[0].available, true)
+})
+
+// ---------------------------------------------------------------------------
+// Pinned transport (DNS rebinding)
+// ---------------------------------------------------------------------------
+
+/** Start a loopback HTTP server; `handle` gets (request, response, bodyText). */
+async function withLoopbackServer(handle, run) {
+  const { createServer } = await import('node:http')
+  let hits = 0
+  const server = createServer((request, response) => {
+    hits += 1
+    const chunks = []
+    request.on('data', (chunk) => chunks.push(chunk))
+    request.on('end', () => handle(request, response, Buffer.concat(chunks).toString('utf8')))
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  try {
+    await run({ port: server.address().port, hits: () => hits })
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+  }
+}
+
+/** Read a pinned-fetch body stream to text. */
+async function readStreamText(body) {
+  const reader = body.getReader()
+  const chunks = []
+  for (;;) {
+    const step = await reader.read()
+    if (step.done) break
+    chunks.push(Buffer.from(step.value))
+  }
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+test('the pinned transport sends requests, decodes gzip and never follows redirects', async () => {
+  const { gzipSync } = await import('node:zlib')
+  await withLoopbackServer((request, response, body) => {
+    if (request.url === '/gzip') {
+      const payload = gzipSync(Buffer.from('decoded page'))
+      response.writeHead(200, { 'content-type': 'text/html', 'content-encoding': 'gzip', 'content-length': payload.length })
+      response.end(payload)
+    } else if (request.url === '/echo') {
+      response.writeHead(201, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ method: request.method, body, auth: request.headers.authorization }))
+    } else {
+      response.writeHead(302, { location: '/elsewhere' })
+      response.end()
+    }
+  }, async ({ port, hits }) => {
+    const fetchImpl = createPinnedFetch({
+      lookupImpl: async () => [{ address: '127.0.0.1', family: 4 }],
+      isBlockedAddress: () => false,
+    })
+    const gz = await fetchImpl(`http://pinned.test:${port}/gzip`, { headers: { accept: 'text/html' } })
+    assert.equal(gz.status, 200)
+    assert.equal(gz.headers.get('content-type'), 'text/html')
+    assert.equal(gz.headers.get('content-encoding'), null)
+    assert.equal(await readStreamText(gz.body), 'decoded page')
+
+    const echo = await fetchImpl(`http://pinned.test:${port}/echo`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test', 'content-type': 'application/json' },
+      body: '{"q":1}',
+    })
+    assert.equal(echo.status, 201)
+    assert.deepEqual(JSON.parse(await readStreamText(echo.body)), { method: 'POST', body: '{"q":1}', auth: 'Bearer test' })
+
+    const redirect = await fetchImpl(`http://pinned.test:${port}/start`, {})
+    assert.equal(redirect.status, 302)
+    assert.equal(redirect.headers.get('location'), '/elsewhere')
+    await redirect.body.cancel()
+    assert.equal(hits(), 3)
+  })
+})
+
+test('the pinned transport refuses a host that resolves to a private address', async () => {
+  const fetchImpl = createPinnedFetch({ lookupImpl: async () => [{ address: '10.0.0.8', family: 4 }] })
+  await assert.rejects(fetchImpl('http://internal.test/', {}), (error) => {
+    assert.ok(error instanceof SourceError)
+    assert.equal(error.code, 'unsupported-url')
+    return true
+  })
+})
+
+test('a DNS rebinding answer at connect time is refused before any connection', async () => {
+  await withLoopbackServer((request, response) => {
+    response.writeHead(200, { 'content-type': 'image/png' })
+    response.end(PNG_BYTES)
+  }, async ({ port, hits }) => {
+    let lookups = 0
+    // First answer (pre-check) is public; the second (the socket's own lookup) is loopback.
+    const lookupImpl = async () => {
+      lookups += 1
+      return lookups === 1 ? [{ address: '93.184.216.34', family: 4 }] : [{ address: '127.0.0.1', family: 4 }]
+    }
+    const result = await captureReferences([`http://rebind.test:${port}/hero.png`], { lookupImpl })
+    assert.equal(result.drafts.length, 0)
+    assert.equal(result.failures.length, 1)
+    assert.equal(result.failures[0].code, 'unsupported-url')
+    assert.equal(lookups, 2, 'the connect-time lookup ran')
+    assert.equal(hits(), 0, 'the loopback server was never reached')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 0.4.3 — concurrency, known references, preview fallback, charsets
+// ---------------------------------------------------------------------------
+
+test('links are captured concurrently (at most 4 in flight) and keep input order', async () => {
+  let inFlight = 0
+  let peak = 0
+  const urls = Array.from({ length: 9 }, (_, index) => `https://cdn.example.com/${index}.png`)
+  const fetchImpl = async (url) => {
+    inFlight += 1
+    peak = Math.max(peak, inFlight)
+    // Later links finish first, so ordering must come from the input, not completion.
+    await new Promise((resolve) => setTimeout(resolve, 30 - Number(/(\d+)\.png$/u.exec(url)[1]) * 3))
+    inFlight -= 1
+    return imageResponse(MINI_PNG)
+  }
+  const result = await captureReferences(urls, { fetchImpl, lookupImpl: lookupPublic })
+  assert.equal(peak, 4)
+  assert.deepEqual(result.drafts.map((draft) => draft.sourceUrl), urls)
+  assert.deepEqual(result.failures, [])
+
+  peak = 0
+  await captureReferences(urls.slice(0, 3), { fetchImpl, lookupImpl: lookupPublic, concurrency: 1 })
+  assert.equal(peak, 1)
+})
+
+test('known links are never fetched and known pages skip their preview download', async () => {
+  const known = new Set(['https://example.com/already', 'https://example.com/canonical'])
+  const fetchImpl = makeFetch({
+    'https://example.com/fresh-page': htmlResponse(
+      '<html><head><link rel="canonical" href="https://example.com/canonical"><meta property="og:image" content="https://cdn.example.com/og.png"></head></html>',
+    ),
+  })
+  const result = await captureReferences(['https://example.com/already', 'https://example.com/fresh-page'], {
+    fetchImpl,
+    lookupImpl: lookupPublic,
+    isKnownSourceUrl: (url) => known.has(url),
+  })
+  assert.deepEqual(result.drafts, [])
+  assert.deepEqual(result.failures, [])
+  assert.deepEqual(result.known, ['https://example.com/already', 'https://example.com/canonical'])
+  assert.deepEqual(fetchImpl.calls.map((call) => call.url), ['https://example.com/fresh-page'])
+})
+
+test('Are.na and Mobbin candidates that are already known skip their image download', async (t) => {
+  clearMobbinEnv(t)
+  const fetchImpl = makeFetch({
+    [`${ARENA_ENDPOINT}?q=cards&per=20`]: jsonResponse({
+      blocks: [
+        { id: 1, source: { url: 'https://example.com/known' }, image: { large: { url: 'https://cdn.arena.test/1.png' } } },
+        { id: 2, source: { url: 'https://example.com/new' }, image: { large: { url: 'https://cdn.arena.test/2.png' } } },
+      ],
+    }),
+    'https://cdn.arena.test/2.png': imageResponse(MINI_PNG),
+    [MOBBIN_ENDPOINT]: jsonResponse({
+      screens: [{ id: 'a', mobbin_url: 'https://mobbin.com/screens/known', image: { url: 'https://cdn.mobbin.test/a.png' } }],
+    }),
+  })
+  const options = {
+    fetchImpl,
+    lookupImpl: lookupPublic,
+    endpoints: { arenaSearch: ARENA_ENDPOINT, mobbinSearch: MOBBIN_ENDPOINT },
+    isKnownSourceUrl: (url) => url.endsWith('/known'),
+  }
+  const arena = await discoverReferences({ source: 'arena', query: 'cards', limit: 2 }, options)
+  assert.deepEqual(arena.known, ['https://example.com/known'])
+  assert.deepEqual(arena.drafts.map((draft) => draft.sourceUrl), ['https://example.com/new'])
+
+  const mobbin = await discoverReferences({ source: 'mobbin', query: 'cards' }, { ...options, config: { mobbinApiKey: 'k' } })
+  assert.deepEqual(mobbin.known, ['https://mobbin.com/screens/known'])
+  assert.deepEqual(mobbin.drafts, [])
+  assert.ok(!fetchImpl.calls.some((call) => call.url.endsWith('/1.png') || call.url.endsWith('/a.png')))
+})
+
+test('a failing og:image falls back to the next preview candidate', async () => {
+  const fetchImpl = makeFetch({
+    'https://example.com/page': htmlResponse(`<html><head>
+<meta property="og:image" content="https://cdn.example.com/missing.png">
+<meta name="twitter:image" content="https://cdn.example.com/works.png">
+</head></html>`),
+    'https://cdn.example.com/missing.png': imageResponse(MINI_PNG, 'image/png', 404),
+    'https://cdn.example.com/works.png': imageResponse(MINI_PNG),
+  })
+  const result = await captureReferences(['https://example.com/page'], { fetchImpl, lookupImpl: lookupPublic })
+  assert.equal(result.drafts.length, 1)
+  assert.deepEqual(result.failures, [])
+
+  const allBroken = makeFetch({
+    'https://example.com/page': htmlResponse('<head><meta property="og:image" content="https://cdn.example.com/missing.png"></head>'),
+    'https://cdn.example.com/missing.png': imageResponse(MINI_PNG, 'image/png', 404),
+  })
+  const failed = await captureReferences(['https://example.com/page'], { fetchImpl: allBroken, lookupImpl: lookupPublic })
+  assert.equal(failed.failures[0].code, 'upstream-error')
+  assert.match(failed.failures[0].message, /HTTP 404/u)
+})
+
+test('page titles decode with the declared charset (header, then meta tag)', async () => {
+  // "Café Ünïcode" in windows-1252, and "デザイン" in Shift_JIS.
+  const latin = Buffer.from([...Buffer.from('<html><head><title>Caf'), 0xe9, ...Buffer.from(' '), 0xdc, ...Buffer.from('n'), 0xef, ...Buffer.from('code</title><meta property="og:image" content="https://cdn.example.com/a.png"></head></html>')])
+  const sjis = Buffer.concat([
+    Buffer.from('<html><head><meta charset="shift_jis"><title>'),
+    Buffer.from([0x83, 0x66, 0x83, 0x55, 0x83, 0x43, 0x83, 0x93]),
+    Buffer.from('</title><meta property="og:image" content="https://cdn.example.com/a.png"></head></html>'),
+  ])
+  const fetchImpl = makeFetch({
+    'https://example.com/latin': new Response(latin, { headers: { 'content-type': 'text/html; charset=windows-1252' } }),
+    'https://example.com/sjis': new Response(sjis, { headers: { 'content-type': 'text/html' } }),
+    // A Response body reads once; both pages share this preview image.
+    'https://cdn.example.com/a.png': () => imageResponse(MINI_PNG),
+  })
+  const result = await captureReferences(['https://example.com/latin', 'https://example.com/sjis'], {
+    fetchImpl,
+    lookupImpl: lookupPublic,
+    concurrency: 1,
+  })
+  assert.deepEqual(result.drafts.map((draft) => draft.name), ['Café Ünïcode', 'デザイン'])
+})
+
+test('body tags are scanned only when the head has no preview image', () => {
+  const withHeadPreview = extractPageMetadata(
+    '<html><head><meta property="og:image" content="/og.png"></head><body><img src="/body.png"></body></html>',
+    'https://example.com/',
+  )
+  assert.deepEqual(withHeadPreview.imageCandidates, ['https://example.com/og.png'])
+
+  const bodyOnly = extractPageMetadata(
+    '<html><head><title>T</title></head><body><img src="/body.png"></body></html>',
+    'https://example.com/',
+  )
+  assert.equal(bodyOnly.imageUrl, 'https://example.com/body.png')
 })

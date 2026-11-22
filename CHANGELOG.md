@@ -1,5 +1,56 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Faster imports.** Links and Mobbin/Are.na result images are fetched 4 at
+  a time (results keep their order). Links and discovery results already on
+  the board are skipped before any fetch or image download, and an import of
+  the same image bytes under another URL is reported as a duplicate (attachments
+  are content-addressed). A page whose first preview image fails falls back to
+  its next candidate; page titles decode with the page's declared charset; the
+  head-only scan skips the body when a preview image is declared up front. The
+  user-agent marker now follows the package version.
+- **Lighter client.** Mutations apply the host's response locally and adopt
+  its new `revision` instead of re-reading the whole board (one silent read only
+  when another write landed in between); uploading 20 files no longer reads
+  `/api/state` 20 times. Pin toggles are optimistic. With the panel closed the
+  revision poll checks every 30 s instead of every 3 s. Gallery cards are a
+  memoized component, unchanged images keep their identity across refreshes,
+  derived lists are memoized, the composer control subscribes to its two counts
+  only, and the stylesheets are injected into `document.head` once. Thumbnail
+  blob URLs are released when far off screen and capped at 48 unused entries.
+- The image preview (lightbox) is now its own `Lightbox` component that owns
+  its focus handling, keyboard navigation and image URL; `MoodboardPage` keeps
+  only which image is open and returns focus to the opener on close.
+- The multi-selection toolbar is now its own `BulkBar` component that owns its
+  tag input, tag error and delete confirmation; they reset when the selection
+  drops below two images (previously only when it was cleared).
+- **Uploads keep quality.** Images that already fit 1600 px and 8 MiB upload
+  unchanged (crisp screenshot text, GIF animation kept); larger PNGs downscale
+  losslessly. Encoding uses `canvas.toBlob` + `FileReader` instead of
+  `toDataURL`.
+- Every mutation response now includes `revision` and `updatedAt`.
+
+### Fixed
+
+- **DNS rebinding.** Link capture and discovery checked a hostname's DNS
+  answer, then let `fetch` resolve it again for the connection, so a host could
+  pass the check with a public address and connect to a private one. The
+  default transport is now a small `node:http`/`node:https` client whose socket
+  lookup rejects private and reserved addresses, so the connected address is
+  the validated one. Redirects stay manual; gzip, deflate and brotli bodies are
+  decoded with the read caps applied to decoded bytes.
+- The `moodboard` tool presented `import` as a read-only call although it
+  fetches the network, reads local files and writes the board. It now reports
+  `kind: 'other'` for `import`; every other action stays `read`.
+- Uploads, replaces and imports stored image bytes while holding the board's
+  write lock, so a slow save (or a 20-image import) queued every other edit
+  behind it. Bytes are now stored first; the write lock only commits, and it
+  re-checks capacity, the replace target and `sourceUrl` duplicates against
+  writes that landed meanwhile.
+
 ## 0.4.2 — 2026-10-31
 
 ### Fixed

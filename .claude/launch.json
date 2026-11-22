@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "moodboard-harness",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["verification/harness/serve.mjs", "4173"],
+      "port": 4173
+    }
+  ]
+}

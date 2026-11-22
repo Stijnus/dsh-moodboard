@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
 import { createServer } from 'node:http'
 import { apply } from '../index.js'
+import { setDefaultFetch } from '../sources.js'
 import test from 'node:test'
 import { createHash } from 'node:crypto'
 import { runInNewContext } from 'node:vm'
@@ -218,6 +219,8 @@ async function withBoard(run, prepare = async () => {}) {
     let handler, tool
     const imageBytes = new Map()
     const sections = []
+    // Tests may set `hooks.beforeSave` to hold an attachment save open.
+    const hooks = { beforeSave: null }
     apply({
       effect: (fn) => fn(),
       webServer: { register: (route) => { handler = route.handler; return () => {} } },
@@ -227,6 +230,7 @@ async function withBoard(run, prepare = async () => {}) {
       logger: { warn() {} },
       attachments: {
         saveImage: async ({ data, mediaType, name }) => {
+          if (typeof hooks.beforeSave === 'function') await hooks.beforeSave({ data, mediaType, name })
           const attachmentId = createHash('sha256').update(data).digest('hex')
           imageBytes.set(attachmentId, data)
           return { attachmentId, bytes: data.length, mediaType, name, width: 1, height: 1 }
@@ -246,7 +250,7 @@ async function withBoard(run, prepare = async () => {}) {
       })
       setImmediate(() => { if (body !== undefined) req.emit('data', Buffer.from(JSON.stringify(body))); req.emit('end') })
     })
-    await run({ request, tool, root, sections, imageBytes })
+    await run({ request, tool, root, sections, imageBytes, hooks })
   } finally {
     if (oldHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = oldHome
@@ -514,7 +518,9 @@ async function loadClientModule(fetch, extraContext = {}, extraWindow = {}) {
   }
   const source = (await read('client.js')).replace(
     "inject: ['slots', 'locale'],",
-    "inject: ['slots', 'locale'], pullBoardRevision, getSnapshot, refresh, startBoardSync, stopBoardSync, applyBoard, setState,",
+    "inject: ['slots', 'locale'], pullBoardRevision, getSnapshot, refresh, startBoardSync, stopBoardSync, applyBoard, setState, " +
+      'patchImage, setPinned, removeImage, reorderImages, uploadFiles, trackPageMount, hostTagList, ' +
+      'selectSingleImage, toggleSelectedImage, selectRangeTo, selectAllImages, invertSelectedImages, clearSelection,',
   )
   runInNewContext(source, { window, fetch, ...extraContext })
   return plugin
@@ -996,6 +1002,12 @@ function fakeImportFetch(pages, imageUrl = IMPORT_IMAGE_URL, imageBytes = PNG_BY
     if (key === imageUrl) {
       return new Response(imageBytes, { status: 200, headers: { 'content-type': 'image/png' } })
     }
+    // `…/hero-<n>.png` serves distinct bytes per n (imports dedupe by content).
+    const numbered = /\/hero-(\d+)\.png$/u.exec(key)
+    if (numbered !== null) {
+      const bytes = Buffer.concat([imageBytes, Buffer.from([Number(numbered[1]) & 0xff])])
+      return new Response(bytes, { status: 200, headers: { 'content-type': 'image/png' } })
+    }
     return new Response('not found', { status: 404, headers: { 'content-type': 'text/plain' } })
   }
   fetchImpl.calls = []
@@ -1017,15 +1029,14 @@ function previewPage({ title, description, imageUrl = IMPORT_IMAGE_URL, siteName
 </head><body></body></html>`
 }
 
-/** Run a callback with a deterministic global fetch installed. */
+/** Run a callback with a deterministic default transport installed for the Host routes. */
 async function withFakeFetch(pages, run, imageUrl) {
-  const originalFetch = globalThis.fetch
   const fetchImpl = fakeImportFetch(pages, imageUrl)
-  globalThis.fetch = fetchImpl
+  const restore = setDefaultFetch(fetchImpl)
   try {
     await run(fetchImpl)
   } finally {
-    globalThis.fetch = originalFetch
+    restore()
   }
 }
 
@@ -1225,7 +1236,11 @@ test('moodboard tool imports, lists sources and returns the workflow; import ima
     for (let index = 1; index <= 7; index += 1) {
       pages.set(
         `https://93.184.216.34/p${index}`,
-        previewPage({ title: `Reference ${index}`, description: `Idea number ${index}.` }),
+        previewPage({
+          title: `Reference ${index}`,
+          description: `Idea number ${index}.`,
+          imageUrl: `https://93.184.216.34/hero-${index}.png`,
+        }),
       )
     }
     await withFakeFetch(pages, async () => {
@@ -1313,4 +1328,434 @@ test('the inspiration-workflow prompt section appears with image blocks and drop
     assert.ok(!text.includes('Reference-to-component workflow'), 'the prompt must not repeat the whole workflow')
     assert.match(await styleGuide.text(), /action: "active"/)
   })
+})
+
+// ---------------------------------------------------------------------------
+// 0.4.3 — write lock, tool presentation
+// ---------------------------------------------------------------------------
+
+/** A gate that holds the next attachment save open until `release()`. */
+function holdNextSave(hooks) {
+  let entered
+  let release
+  const started = new Promise((resolve) => { entered = resolve })
+  const gate = new Promise((resolve) => { release = resolve })
+  hooks.beforeSave = async () => {
+    hooks.beforeSave = null
+    entered()
+    await gate
+  }
+  return { started, release }
+}
+
+test('a slow image save does not block other board edits', async () => {
+  await withBoard(async ({ request, hooks }) => {
+    const first = (await request('POST', '/api/images', upload)).body.image
+    const held = holdNextSave(hooks)
+    const pending = request('POST', '/api/images', { ...upload, data: Buffer.from('second').toString('base64'), name: 'second.png' })
+    await held.started
+
+    // Before the fix this PATCH queued behind the held save and never finished here.
+    const patched = await request('PATCH', '/api/images/' + first.id, { pinned: true })
+    assert.equal(patched.status, 200)
+    assert.equal(patched.body.image.pinned, true)
+
+    held.release()
+    const created = await pending
+    assert.equal(created.status, 200)
+    const state = (await request('GET', '/api/state')).body.board
+    assert.equal(state.images.length, 2)
+    assert.equal(state.images.find((image) => image.id === first.id).pinned, true)
+  })
+})
+
+test('replace checks the target before storing bytes and re-checks it at commit', async () => {
+  await withBoard(async ({ request, hooks, imageBytes }) => {
+    const before = imageBytes.size
+    const missing = await request('POST', '/api/images/mb_000000000000/replace', upload)
+    assert.equal(missing.status, 404)
+    assert.equal(imageBytes.size, before, 'no bytes are stored for an unknown image')
+
+    const image = (await request('POST', '/api/images', upload)).body.image
+    const held = holdNextSave(hooks)
+    const pending = request('POST', '/api/images/' + image.id + '/replace', { ...upload, data: Buffer.from('next').toString('base64') })
+    await held.started
+    assert.equal((await request('DELETE', '/api/images/' + image.id)).status, 200)
+    held.release()
+    assert.equal((await pending).status, 404)
+  })
+})
+
+test('an import re-checks duplicates against writes that landed while it saved', async () => {
+  await withBoard(async ({ request, hooks }) => {
+    const pages = new Map([[IMPORT_PAGE_URL, previewPage({ title: 'Race reference', description: 'Raced.' })]])
+    await withFakeFetch(pages, async () => {
+      const held = holdNextSave(hooks)
+      const pending = request('POST', '/api/import', { urls: [IMPORT_PAGE_URL] })
+      await held.started
+      // The same source lands through a plain upload while the import is saving.
+      const direct = await request('POST', '/api/images', { ...upload, sourceUrl: IMPORT_PAGE_URL })
+      assert.equal(direct.status, 200)
+      held.release()
+
+      const result = await pending
+      assert.equal(result.status, 200)
+      assert.equal(result.body.imported.length, 0)
+      assert.equal(result.body.duplicates.length, 1)
+      assert.equal(result.body.duplicates[0].id, direct.body.image.id)
+      assert.equal((await request('GET', '/api/state')).body.board.images.length, 1)
+    })
+  })
+})
+
+test('the tool presents import as a non-read call and every other action as a read', async () => {
+  await withBoard(async ({ tool }) => {
+    assert.equal(tool.presentCall({ action: 'import', urls: ['https://example.com'] }).kind, 'other')
+    for (const action of ['active', 'list', 'query', 'get', 'brief', 'sources', 'workflow']) {
+      assert.equal(tool.presentCall({ action }).kind, 'read', action)
+    }
+    assert.equal(tool.presentCall({}).kind, 'read')
+  })
+})
+
+test('re-importing a link already on the board is a duplicate without any fetch', async () => {
+  await withBoard(async ({ request }) => {
+    const pages = new Map([[IMPORT_PAGE_URL, previewPage({ title: 'Known', description: 'Known page.' })]])
+    await withFakeFetch(pages, async (fetchImpl) => {
+      const first = await request('POST', '/api/import', { urls: [IMPORT_PAGE_URL] })
+      assert.equal(first.body.imported.length, 1)
+      fetchImpl.calls.length = 0
+
+      const again = await request('POST', '/api/import', { urls: [IMPORT_PAGE_URL] })
+      assert.equal(again.status, 200)
+      assert.equal(again.body.imported.length, 0)
+      assert.deepEqual(again.body.duplicates.map((image) => image.id), [first.body.imported[0].id])
+      assert.deepEqual(fetchImpl.calls, [], 'a known link is not fetched again')
+    })
+  })
+})
+
+test('the same image under a different URL is a duplicate by content', async () => {
+  await withBoard(async ({ request }) => {
+    const other = 'https://93.184.216.34/preview?utm_source=newsletter'
+    const pages = new Map([
+      [IMPORT_PAGE_URL, previewPage({ title: 'Original', description: 'First.' })],
+      [other, previewPage({ title: 'Same image elsewhere', description: 'Second.' })],
+    ])
+    await withFakeFetch(pages, async () => {
+      const first = await request('POST', '/api/import', { urls: [IMPORT_PAGE_URL] })
+      assert.equal(first.body.imported.length, 1)
+      const second = await request('POST', '/api/import', { urls: [other] })
+      assert.equal(second.body.imported.length, 0)
+      assert.deepEqual(second.body.duplicates.map((image) => image.id), [first.body.imported[0].id])
+
+    })
+
+    // Within one batch, the second page with the same image bytes is a duplicate too.
+    const shared = 'https://93.184.216.34/hero-50.png'
+    const batchPages = new Map([
+      ['https://93.184.216.34/c', previewPage({ title: 'C', description: 'c', imageUrl: shared })],
+      ['https://93.184.216.34/d', previewPage({ title: 'D', description: 'd', imageUrl: shared })],
+    ])
+    await withFakeFetch(batchPages, async () => {
+      const batch = await request('POST', '/api/import', { urls: [...batchPages.keys()] })
+      assert.equal(batch.body.imported.length, 1)
+      assert.equal(batch.body.imported[0].name, 'C')
+      assert.deepEqual(batch.body.duplicates.map((image) => image.id), [batch.body.imported[0].id])
+      assert.equal((await request('GET', '/api/state')).body.board.images.length, 2)
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 0.4.3 — client store: local commits, idle polling, selection, uploads
+// ---------------------------------------------------------------------------
+
+/** A tiny in-memory host for client store tests (revision counts commits). */
+function fakeHost(initialImages = []) {
+  const host = {
+    revision: 1,
+    updatedAt: 'r1',
+    images: initialImages.map((image) => ({ ...image })),
+    calls: [],
+    /** Simulate a write made by someone else (the agent, another window). */
+    externalWrite() {
+      host.revision += 1
+      host.updatedAt = `r${host.revision}`
+    },
+  }
+  const commit = () => {
+    host.revision += 1
+    host.updatedAt = `r${host.revision}`
+    return { revision: host.revision, updatedAt: host.updatedAt }
+  }
+  host.fetch = async (url, init = {}) => {
+    const path = String(url)
+    const method = init.method ?? 'GET'
+    host.calls.push(`${method} ${path}`)
+    if (path.endsWith('/api/state')) {
+      return jsonResponse({ ok: true, revision: host.revision, board: { version: 1, updatedAt: host.updatedAt, images: host.images } })
+    }
+    if (path.endsWith('/api/revision')) {
+      return jsonResponse({ ok: true, revision: host.revision, updatedAt: host.updatedAt, images: host.images.length })
+    }
+    if (host.failNext) {
+      host.failNext = false
+      return { ok: false, status: 500, json: async () => ({ ok: false, error: { code: 'storage-failed', message: 'boom' } }) }
+    }
+    const body = init.body === undefined ? {} : JSON.parse(init.body)
+    const match = /\/api\/images\/([^/]+)$/u.exec(path)
+    if (method === 'PATCH' && match !== null) {
+      const image = host.images.find((entry) => entry.id === match[1])
+      Object.assign(image, body, { updatedAt: `u${host.revision + 1}` })
+      return jsonResponse({ ok: true, image: { ...image }, ...commit() })
+    }
+    if (method === 'DELETE' && match !== null) {
+      host.images = host.images.filter((entry) => entry.id !== match[1])
+      return jsonResponse({ ok: true, removed: match[1], ...commit() })
+    }
+    if (method === 'POST' && path.endsWith('/api/images')) {
+      const image = {
+        id: `mb_${String(host.images.length + 1).padStart(12, '0')}`,
+        name: body.name,
+        tags: [],
+        notes: '',
+        sourceUrl: '',
+        pinned: false,
+        order: host.images.length,
+        mediaType: body.mediaType,
+        imageUrl: `/moodboard/image/x?v=${host.images.length}`,
+        uploaded: body.data,
+      }
+      host.images.push(image)
+      return jsonResponse({ ok: true, image: { ...image }, ...commit() })
+    }
+    if (method === 'POST' && path.endsWith('/api/images/reorder')) {
+      body.ids.forEach((id, index) => {
+        host.images.find((entry) => entry.id === id).order = index
+      })
+      return jsonResponse({ ok: true, ...commit() })
+    }
+    throw new Error(`unexpected ${method} ${path}`)
+  }
+  return host
+}
+
+const boardImage = (id, extra = {}) => ({
+  id,
+  name: `${id}.png`,
+  tags: [],
+  notes: '',
+  sourceUrl: '',
+  pinned: false,
+  order: Number(id.slice(-1)),
+  imageUrl: `/moodboard/image/${id}?v=1`,
+  ...extra,
+})
+
+test('client mutations apply their own commit locally without re-reading the board', async () => {
+  const host = fakeHost([boardImage('mb_00000000000a'), boardImage('mb_00000000000b')])
+  const plugin = await loadClientModule(host.fetch)
+  await plugin.refresh()
+  host.calls.length = 0
+
+  const saved = await plugin.patchImage('mb_00000000000a', { tags: ['Warm'] })
+  assert.equal(saved.tags[0], 'Warm')
+  assert.deepEqual(host.calls, ['PATCH /moodboard/api/images/mb_00000000000a'], 'no /api/state read')
+  assert.deepEqual(Array.from(plugin.getSnapshot().board.allTags), ['Warm'])
+
+  assert.equal(await plugin.removeImage(plugin.getSnapshot().board.images[1]), true)
+  assert.equal(plugin.getSnapshot().board.images.length, 1)
+
+  // Our own commits are adopted, so the next poll sees nothing new.
+  host.calls.length = 0
+  assert.equal(await plugin.pullBoardRevision(), false)
+  assert.deepEqual(host.calls, ['GET /moodboard/api/revision'])
+})
+
+test('a commit that skips a revision (another write landed) reconciles with one silent read', async () => {
+  const host = fakeHost([boardImage('mb_00000000000a')])
+  const plugin = await loadClientModule(host.fetch)
+  await plugin.refresh()
+  host.externalWrite()
+  host.images.push(boardImage('mb_00000000000c'))
+  host.calls.length = 0
+
+  await plugin.patchImage('mb_00000000000a', { notes: 'x' })
+  assert.deepEqual(host.calls, ['PATCH /moodboard/api/images/mb_00000000000a', 'GET /moodboard/api/state'])
+  assert.equal(plugin.getSnapshot().board.images.length, 2, 'the external image arrives too')
+  assert.equal(plugin.getSnapshot().loading, false)
+})
+
+test('pinning flips at once and a failed pin restores the server state', async () => {
+  const host = fakeHost([boardImage('mb_00000000000a')])
+  const plugin = await loadClientModule(host.fetch)
+  await plugin.refresh()
+  const image = plugin.getSnapshot().board.images[0]
+
+  const pending = plugin.setPinned(image, true)
+  assert.equal(plugin.getSnapshot().board.images[0].pinned, true, 'optimistic before the response')
+  assert.equal(await pending, true)
+  assert.deepEqual(Array.from(plugin.getSnapshot().board.pinned), ['mb_00000000000a'])
+
+  host.failNext = true
+  assert.equal(await plugin.setPinned(plugin.getSnapshot().board.images[0], false), false)
+  assert.equal(plugin.getSnapshot().board.images[0].pinned, true, 'the failed unpin is rolled back')
+  assert.notEqual(plugin.getSnapshot().error, '')
+})
+
+test('reordering mirrors the new order locally', async () => {
+  const host = fakeHost([boardImage('mb_00000000000a'), boardImage('mb_00000000000b')])
+  const plugin = await loadClientModule(host.fetch)
+  await plugin.refresh()
+  host.calls.length = 0
+  assert.equal(await plugin.reorderImages(['mb_00000000000b', 'mb_00000000000a']), true)
+  assert.deepEqual(Array.from(plugin.getSnapshot().board.images, (image) => image.id), ['mb_00000000000b', 'mb_00000000000a'])
+  assert.deepEqual(host.calls, ['POST /moodboard/api/images/reorder'])
+})
+
+test('unchanged images keep their object identity across refreshes', async () => {
+  const host = fakeHost([boardImage('mb_00000000000a'), boardImage('mb_00000000000b')])
+  const plugin = await loadClientModule(host.fetch)
+  await plugin.refresh()
+  const [first, second] = plugin.getSnapshot().board.images
+  host.images[1].notes = 'changed'
+  host.externalWrite()
+  await plugin.refresh()
+  const [nextFirst, nextSecond] = plugin.getSnapshot().board.images
+  assert.equal(nextFirst, first, 'an untouched image is the same object (memoized cards skip it)')
+  assert.notEqual(nextSecond, second)
+  assert.equal(nextSecond.notes, 'changed')
+})
+
+test('with no page mounted the poll checks every 30 s; a mounted page polls every tick', async () => {
+  const host = fakeHost()
+  let clock = 1_000_000
+  const intervals = []
+  const context = {
+    Date: { now: () => clock },
+    document: eventTarget({ visibilityState: 'visible' }),
+    setInterval: (callback, delay) => {
+      intervals.push({ callback, delay })
+      return { unref() {} }
+    },
+    clearInterval: () => {},
+  }
+  const plugin = await loadClientModule(host.fetch, context, eventTarget())
+  await plugin.refresh()
+  plugin.startBoardSync()
+  const revisionReads = () => host.calls.filter((call) => call.endsWith('/api/revision')).length
+
+  intervals[0].callback()
+  await flushAsync()
+  assert.equal(revisionReads(), 1)
+  clock += 3000
+  intervals[0].callback()
+  await flushAsync()
+  assert.equal(revisionReads(), 1, 'idle: a 3 s tick does not poll')
+  clock += 30000
+  intervals[0].callback()
+  await flushAsync()
+  assert.equal(revisionReads(), 2, 'idle: polls again after 30 s')
+
+  const unmount = plugin.trackPageMount()
+  clock += 3000
+  intervals[0].callback()
+  await flushAsync()
+  assert.equal(revisionReads(), 3, 'mounted: every tick polls')
+  unmount()
+  unmount()
+  clock += 3000
+  intervals[0].callback()
+  await flushAsync()
+  assert.equal(revisionReads(), 3, 'unmounting twice does not go negative')
+  plugin.stopBoardSync()
+})
+
+test('selection: single, toggle, range, select all, invert and clear', async () => {
+  const ids = ['mb_00000000000a', 'mb_00000000000b', 'mb_00000000000c', 'mb_00000000000d']
+  const host = fakeHost(ids.map((id) => boardImage(id)))
+  const plugin = await loadClientModule(host.fetch)
+  await plugin.refresh()
+  const selected = () => Array.from(plugin.getSnapshot().selectedIds)
+
+  plugin.selectSingleImage(ids[1])
+  assert.deepEqual(selected(), [ids[1]])
+  assert.equal(plugin.getSnapshot().selectedId, ids[1])
+  plugin.toggleSelectedImage(ids[3])
+  assert.deepEqual(selected(), [ids[1], ids[3]])
+  plugin.toggleSelectedImage(ids[3])
+  assert.deepEqual(selected(), [ids[1]])
+  assert.equal(plugin.getSnapshot().selectionAnchorId, ids[3], 'a toggle moves the range anchor')
+  plugin.selectSingleImage(ids[1])
+  plugin.selectRangeTo(ids[3], ids)
+  assert.deepEqual(selected(), [ids[1], ids[2], ids[3]])
+  assert.equal(plugin.selectAllImages(ids), 4)
+  assert.equal(plugin.getSnapshot().selectedId, null, 'select all closes the details panel')
+  plugin.selectSingleImage(ids[0])
+  assert.equal(plugin.invertSelectedImages(ids), 3)
+  assert.deepEqual(selected(), [ids[1], ids[2], ids[3]])
+  plugin.clearSelection()
+  assert.deepEqual(selected(), [])
+  assert.equal(plugin.getSnapshot().selectionAnchorId, null)
+})
+
+test('uploads keep small images as-is and add each file without a board read', async () => {
+  const host = fakeHost()
+  const context = {
+    createImageBitmap: async () => ({ width: 800, height: 600, close() {} }),
+    FileReader: class {
+      readAsDataURL(blob) {
+        this.result = `data:${blob.type};base64,${Buffer.from(blob.content).toString('base64')}`
+        setImmediate(() => this.onload())
+      }
+    },
+  }
+  const plugin = await loadClientModule(host.fetch, context)
+  await plugin.refresh()
+  host.calls.length = 0
+  const file = (name, type, content) => ({ name, type, size: content.length, content })
+  await plugin.uploadFiles([file('shot.png', 'image/png', 'png-bytes'), file('anim.gif', 'image/gif', 'gif-bytes')])
+
+  assert.deepEqual(host.calls, ['POST /moodboard/api/images', 'POST /moodboard/api/images'], 'no /api/state reads')
+  assert.deepEqual(host.images.map((image) => image.mediaType), ['image/png', 'image/gif'], 'types are kept')
+  assert.equal(Buffer.from(host.images[0].uploaded, 'base64').toString(), 'png-bytes', 'bytes are uploaded unchanged')
+  assert.equal(plugin.getSnapshot().board.images.length, 2)
+  assert.equal(plugin.getSnapshot().uploading, false)
+})
+
+test('the client injects its stylesheets once and the composer reads only the counts', async () => {
+  const client = await read('client.js')
+  assert.match(client, /injectStyle\('dsh-mb-page-css', PAGE_CSS\)/)
+  assert.match(client, /injectStyle\('dsh-mb-reference-css', REFERENCE_CSS\)/)
+  assert.doesNotMatch(client, /h\('style', null, PAGE_CSS\)/)
+  assert.match(client, /removeInjectedStyles\(\)/)
+  const button = client.slice(client.indexOf('function ReferenceButton'), client.indexOf('// Plugin entry'))
+  assert.doesNotMatch(button, /useSyncExternalStore\(subscribe, getSnapshot\)/, 'the composer must not subscribe to the whole store')
+})
+
+test('the lightbox is its own component that owns focus, keys and its image URL', async () => {
+  const client = await read('client.js')
+  const start = client.indexOf('    function Lightbox(props) {')
+  assert.ok(start !== -1, 'Lightbox component exists')
+  const lightbox = client.slice(start, client.indexOf('    function MoodboardPage(props) {'))
+  for (const anchor of ['useImageUrl(image)', 'closeRef.current', 'LIGHTBOX_FOCUSABLE', "event.key === 'ArrowLeft'", "addEventListener('keydown'"]) {
+    assert.ok(lightbox.includes(anchor), `Lightbox must own ${anchor}`)
+  }
+  const page = client.slice(client.indexOf('    function MoodboardPage(props) {'), client.indexOf('function ReferenceButton'))
+  assert.match(page, /h\(Lightbox, \{/)
+  assert.doesNotMatch(page, /renderLightbox|lightboxCloseRef|useImageUrl\(lightboxImage\)/)
+})
+
+test('the bulk bar is its own component that owns its tag input and delete confirmation', async () => {
+  const client = await read('client.js')
+  const start = client.indexOf('    function BulkBar(props) {')
+  assert.ok(start !== -1, 'BulkBar component exists')
+  const bar = client.slice(start, client.indexOf('    function MoodboardPage(props) {'))
+  for (const anchor of ["useState('')", 'setBulkConfirmRemove', 'bulkUpdate(patch)', 'invertSelectedImages(visibleIds)', "role: 'toolbar'"]) {
+    assert.ok(bar.includes(anchor), `BulkBar must own ${anchor}`)
+  }
+  const page = client.slice(client.indexOf('    function MoodboardPage(props) {'), client.indexOf('function ReferenceButton'))
+  assert.match(page, /h\(BulkBar, \{/)
+  assert.doesNotMatch(page, /renderBulkToolbar|setBulkTag|bulkConfirmRemove|runBulk/)
 })

@@ -19,16 +19,24 @@
  *
  * Every network path accepts injected `fetchImpl`, `lookupImpl`, `endpoints`
  * and `timeoutMs` options so tests run deterministically offline. Defaults are
- * the global `fetch`, `dns.lookup`, and the production endpoints, resolved at
- * call time (never at module load).
+ * the pinned transport (`createPinnedFetch`), `dns.lookup`, and the production
+ * endpoints, resolved at call time (never at module load).
+ *
+ * The pinned transport validates the addresses it actually connects to inside
+ * the socket's DNS lookup, so a host that answers with a public address for the
+ * pre-check and a private one for the connection (DNS rebinding) is refused.
  */
 
 import { lookup as dnsLookup } from 'node:dns/promises'
 import { readFileSync, statSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
+import { request as httpRequest } from 'node:http'
+import { request as httpsRequest } from 'node:https'
 import { isIP } from 'node:net'
 import { basename, isAbsolute, join } from 'node:path'
+import { Readable, pipeline } from 'node:stream'
 import { TextDecoder, TextEncoder } from 'node:util'
+import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib'
 
 // ---------------------------------------------------------------------------
 // Contract constants
@@ -70,17 +78,89 @@ const DEFAULT_API_TIMEOUT_MS = 25000
 /** Manual redirect budget. */
 const MAX_REDIRECTS = 3
 
+/** Concurrent network reads per batch (links, discovery image downloads). */
+const DEFAULT_FETCH_CONCURRENCY = 4
+const MAX_FETCH_CONCURRENCY = 8
+
+/** Preview-image candidates tried per page before giving up. */
+const MAX_PREVIEW_CANDIDATES = 4
+
+/** Fallback when `package.json` cannot be read (version marker only). */
+const FALLBACK_PLUGIN_VERSION = '0.4'
+
+let pluginVersionCache = null
+
+/**
+ * `major.minor` of this package, read lazily from `package.json` (never at
+ * import time) so the user-agent marker cannot drift from the release.
+ */
+function pluginVersion() {
+  if (pluginVersionCache !== null) return pluginVersionCache
+  pluginVersionCache = FALLBACK_PLUGIN_VERSION
+  try {
+    const parsed = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+    const match = typeof parsed?.version === 'string' ? /^(\d+)\.(\d+)/u.exec(parsed.version) : null
+    if (match !== null) pluginVersionCache = `${match[1]}.${match[2]}`
+  } catch {
+    // Keep the fallback marker.
+  }
+  return pluginVersionCache
+}
+
 /** Browser-like UA plus the plugin marker required by the contract. */
-const USER_AGENT =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
-  '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 dsh-moodboard/0.3'
+function browserUserAgent() {
+  return (
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+    `(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 dsh-moodboard/${pluginVersion()}`
+  )
+}
 
 /**
  * API UA. Some inspiration APIs (Are.na) reject a browser UA as unidentified
  * automated traffic while accepting an honest agent UA, so API requests never
  * pretend to be a browser.
  */
-const API_USER_AGENT = 'dsh-moodboard/0.3 (+https://github.com/Stijnus/dsh-moodboard)'
+function apiUserAgent() {
+  return `dsh-moodboard/${pluginVersion()} (+https://github.com/Stijnus/dsh-moodboard)`
+}
+
+/**
+ * Run `fn` over `items` with at most `limit` in flight, keeping result order.
+ * `fn` must not throw; callers wrap failures into result values.
+ */
+async function mapConcurrent(items, limit, fn) {
+  const results = new Array(items.length)
+  let next = 0
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next
+      next += 1
+      results[index] = await fn(items[index], index)
+    }
+  }
+  const count = Math.max(1, Math.min(limit, items.length))
+  await Promise.all(Array.from({ length: count }, worker))
+  return results
+}
+
+/** Validated concurrency option (tests may force 1 for strict call order). */
+function resolveConcurrency(options) {
+  const value = isPlainObject(options) ? options.concurrency : undefined
+  return Number.isInteger(value) && value >= 1 ? Math.min(value, MAX_FETCH_CONCURRENCY) : DEFAULT_FETCH_CONCURRENCY
+}
+
+/** The caller's "already on the board" predicate, or a never-known default. */
+function resolveKnownSource(options) {
+  const value = isPlainObject(options) ? options.isKnownSourceUrl : undefined
+  if (typeof value !== 'function') return () => false
+  return (url) => {
+    try {
+      return typeof url === 'string' && url !== '' && value(url) === true
+    } catch {
+      return false
+    }
+  }
+}
 
 /** Production discovery endpoints; overridable only for deterministic tests. */
 const DEFAULT_ENDPOINTS = Object.freeze({
@@ -710,22 +790,38 @@ export function extractPageMetadata(html, baseUrl) {
   const imageLinks = []
   let canonicalRaw = ''
 
-  const tagPattern = /<(meta|link|img)\b([^>]*)>/giu
-  let match
-  while ((match = tagPattern.exec(source)) !== null) {
-    const tag = match[1].toLowerCase()
-    const attrs = parseAttributes(match[2])
-    if (tag === 'meta') {
-      const key = String(attrs.property ?? attrs.name ?? attrs.itemprop ?? '').trim().toLowerCase()
-      if (key === '' || attrs.content === undefined) continue
-      if (!meta.has(key)) meta.set(key, attrs.content)
-    } else if (tag === 'link') {
-      const rels = String(attrs.rel ?? '').toLowerCase().split(/\s+/u).filter(Boolean)
-      if (rels.includes('canonical') && canonicalRaw === '' && attrs.href !== undefined) canonicalRaw = attrs.href
-      if (rels.includes('image_src') && attrs.href !== undefined) imageLinks.push(attrs.href)
-    } else if (tag === 'img') {
-      if (attrs.src !== undefined) imageSrcs.push(attrs.src)
+  const scanTags = (text) => {
+    const tagPattern = /<(meta|link|img)\b([^>]*)>/giu
+    let match
+    while ((match = tagPattern.exec(text)) !== null) {
+      const tag = match[1].toLowerCase()
+      const attrs = parseAttributes(match[2])
+      if (tag === 'meta') {
+        const key = String(attrs.property ?? attrs.name ?? attrs.itemprop ?? '').trim().toLowerCase()
+        if (key === '' || attrs.content === undefined) continue
+        if (!meta.has(key)) meta.set(key, attrs.content)
+      } else if (tag === 'link') {
+        const rels = String(attrs.rel ?? '').toLowerCase().split(/\s+/u).filter(Boolean)
+        if (rels.includes('canonical') && canonicalRaw === '' && attrs.href !== undefined) canonicalRaw = attrs.href
+        if (rels.includes('image_src') && attrs.href !== undefined) imageLinks.push(attrs.href)
+      } else if (tag === 'img') {
+        if (attrs.src !== undefined) imageSrcs.push(attrs.src)
+      }
     }
+  }
+
+  // Scan the document head first. The body (up to 4 MiB) is only scanned when
+  // the head has no Open Graph / Twitter / image_src preview, because body tags
+  // can only add lower-priority candidates (itemprop image, first <img>).
+  const headEnd = source.search(/<\/head\s*>/iu)
+  if (headEnd === -1) {
+    scanTags(source)
+  } else {
+    scanTags(source.slice(0, headEnd))
+    const headHasPreview =
+      imageLinks.length > 0 ||
+      ['og:image', 'og:image:url', 'twitter:image', 'twitter:image:src'].some((key) => meta.has(key))
+    if (!headHasPreview) scanTags(source.slice(headEnd))
   }
 
   const host = base === '' ? '' : safeHostFromBase(base)
@@ -778,22 +874,172 @@ function safeHostFromBase(baseUrl) {
 // Transport
 // ---------------------------------------------------------------------------
 
+/**
+ * Test seam: a fetch used instead of the pinned transport when a caller does
+ * not inject `fetchImpl` (the Host routes never do). `null` means "pinned".
+ */
+let defaultFetchOverride = null
+
+/**
+ * Replace the default transport for callers that inject no `fetchImpl`.
+ * Intended for offline tests of the Host routes only.
+ * @param fetchImpl - fetch-compatible function, or `null` for the pinned transport.
+ * @returns a function that restores the previous default.
+ */
+export function setDefaultFetch(fetchImpl) {
+  const previous = defaultFetchOverride
+  defaultFetchOverride = typeof fetchImpl === 'function' ? fetchImpl : null
+  return () => {
+    defaultFetchOverride = previous
+  }
+}
+
 /** Resolve injected transport options with call-time defaults. */
 function resolveTransport(options, defaultTimeoutMs) {
   const value = isPlainObject(options) ? options : {}
   const timeoutMs =
     Number.isFinite(value.timeoutMs) && value.timeoutMs > 0 ? Math.floor(value.timeoutMs) : defaultTimeoutMs
+  const lookupImpl = typeof value.lookupImpl === 'function' ? value.lookupImpl : dnsLookup
   const fetchImpl =
     typeof value.fetchImpl === 'function'
       ? value.fetchImpl
-      : typeof globalThis.fetch === 'function'
-        ? globalThis.fetch.bind(globalThis)
-        : null
-  if (fetchImpl === null) {
-    throw new SourceError('upstream-error', 'No fetch implementation is available in this runtime.')
-  }
-  const lookupImpl = typeof value.lookupImpl === 'function' ? value.lookupImpl : dnsLookup
+      : (defaultFetchOverride ?? createPinnedFetch({ lookupImpl }))
   return { fetchImpl, lookupImpl, timeoutMs }
+}
+
+/**
+ * A minimal fetch over `node:http`/`node:https` whose socket lookup rejects
+ * private and reserved addresses. The check runs on the very answer the
+ * connection uses, which closes the gap between `assertPublicAddress` and the
+ * connect (DNS rebinding). Redirects are never followed (`redirect: 'manual'`
+ * semantics); gzip, deflate and brotli bodies are decoded while streaming, so
+ * the caller's read cap applies to decoded bytes.
+ *
+ * @param options - `{ lookupImpl?, isBlockedAddress? }`; `isBlockedAddress`
+ *   defaults to the SSRF range check and exists for loopback tests.
+ * @returns `(href, init) => Promise<{ status, headers, body }>` where `headers`
+ *   is a `Headers` and `body` a web `ReadableStream`.
+ */
+export function createPinnedFetch(options = {}) {
+  const settings = isPlainObject(options) ? options : {}
+  const lookupImpl = typeof settings.lookupImpl === 'function' ? settings.lookupImpl : dnsLookup
+  const isBlocked = typeof settings.isBlockedAddress === 'function' ? settings.isBlockedAddress : isPrivateAddress
+  const lookup = pinnedLookup(lookupImpl, isBlocked)
+  return (href, init) => pinnedRequest(href, isPlainObject(init) ? init : {}, lookup)
+}
+
+/** A `net` lookup hook that refuses any answer containing a blocked address. */
+function pinnedLookup(lookupImpl, isBlocked) {
+  return (hostname, rawOptions, rawCallback) => {
+    const callback = typeof rawOptions === 'function' ? rawOptions : rawCallback
+    const options = typeof rawOptions === 'number' ? { family: rawOptions } : isPlainObject(rawOptions) ? rawOptions : {}
+    const resolved = Promise.resolve()
+      .then(() => lookupImpl(hostname, { all: true }))
+      .then((records) => {
+        const list = (Array.isArray(records) ? records : records === undefined || records === null ? [] : [records]).map(
+          (record) => {
+            const address = typeof record === 'string' ? record : record?.address
+            const family = typeof record === 'object' && (record?.family === 4 || record?.family === 6) ? record.family : isIP(String(address))
+            return { address, family }
+          },
+        )
+        if (list.length === 0) throw new SourceError('upstream-error', 'Could not resolve this host.')
+        for (const record of list) {
+          if (typeof record.address !== 'string' || isBlocked(record.address)) throw privateAddressError()
+        }
+        const family = options.family === 4 || options.family === 6 ? options.family : 0
+        const usable = family === 0 ? list : list.filter((record) => record.family === family)
+        if (usable.length === 0) throw new SourceError('upstream-error', 'Could not resolve this host.')
+        return usable
+      })
+    resolved.then(
+      (usable) => {
+        if (options.all === true) callback(null, usable)
+        else callback(null, usable[0].address, usable[0].family)
+      },
+      (error) => {
+        callback(error instanceof SourceError ? error : new SourceError('upstream-error', 'Could not resolve this host.'))
+      },
+    )
+  }
+}
+
+/** One pinned HTTP(S) request; resolves once the response head arrives. */
+function pinnedRequest(href, init, lookup) {
+  return new Promise((resolve, reject) => {
+    let url
+    try {
+      url = new URL(href)
+    } catch {
+      reject(invalidUrlError())
+      return
+    }
+    const requestImpl = url.protocol === 'https:' ? httpsRequest : url.protocol === 'http:' ? httpRequest : null
+    if (requestImpl === null) {
+      reject(new SourceError('unsupported-url', 'Only http and https links are supported.'))
+      return
+    }
+
+    const headers = { 'accept-encoding': 'gzip, deflate, br' }
+    if (isPlainObject(init.headers)) {
+      for (const [name, value] of Object.entries(init.headers)) {
+        if (value !== undefined && value !== null) headers[name.toLowerCase()] = String(value)
+      }
+    }
+    let body = null
+    if (typeof init.body === 'string') body = new TextEncoder().encode(init.body)
+    else if (init.body !== undefined && init.body !== null) body = toBytes(init.body)
+    if (body !== null) headers['content-length'] = String(body.byteLength)
+
+    let request
+    try {
+      request = requestImpl(url, {
+        method: typeof init.method === 'string' ? init.method : 'GET',
+        headers,
+        lookup,
+        // A private agent per request: never reuse a pooled socket that was
+        // connected without this lookup.
+        agent: false,
+        signal: init.signal ?? undefined,
+      })
+    } catch (error) {
+      reject(error)
+      return
+    }
+    request.once('error', reject)
+    request.once('response', (response) => {
+      const responseHeaders = new Headers()
+      for (const [name, value] of Object.entries(response.headers)) {
+        if (value === undefined) continue
+        try {
+          if (Array.isArray(value)) for (const item of value) responseHeaders.append(name, item)
+          else responseHeaders.set(name, String(value))
+        } catch {
+          // A header value Headers cannot represent is not one this module reads.
+        }
+      }
+      resolve({
+        status: response.statusCode ?? 0,
+        headers: responseHeaders,
+        body: Readable.toWeb(decodeContentEncoding(response, responseHeaders)),
+      })
+    })
+    if (body !== null) request.write(body)
+    request.end()
+  })
+}
+
+/** Pipe a response through its content decoder (and drop the encoded length). */
+function decodeContentEncoding(response, headers) {
+  const encoding = (headers.get('content-encoding') ?? '').trim().toLowerCase()
+  let decoder = null
+  if (encoding === 'gzip' || encoding === 'x-gzip') decoder = createGunzip()
+  else if (encoding === 'deflate') decoder = createInflate()
+  else if (encoding === 'br') decoder = createBrotliDecompress()
+  if (decoder === null) return response
+  headers.delete('content-encoding')
+  headers.delete('content-length')
+  return pipeline(response, decoder, () => {})
 }
 
 /** Merge injected endpoints over the production defaults. */
@@ -906,7 +1152,7 @@ async function requestWithRedirects(rawUrl, config) {
       response = await fetchImpl(url.href, {
         method,
         headers: {
-          'user-agent': USER_AGENT,
+          'user-agent': browserUserAgent(),
           accept: accept ?? '*/*',
           ...headers,
         },
@@ -958,6 +1204,41 @@ function decodeUtf8(bytes) {
   return new TextDecoder('utf-8').decode(bytes)
 }
 
+/** A `TextDecoder` for a charset label, or `null` when the runtime lacks it. */
+function decoderFor(label) {
+  if (typeof label !== 'string' || label.trim() === '') return null
+  try {
+    return new TextDecoder(label.trim().replace(/^["']|["']$/gu, '').toLowerCase())
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Decode an HTML document with its declared charset: a byte-order mark wins,
+ * then the `content-type` charset, then a `<meta charset>` /
+ * `http-equiv="content-type"` declaration in the first 2 KiB, else UTF-8.
+ */
+function decodeHtml(bytes, contentTypeHeader) {
+  if (bytes.byteLength >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return decodeUtf8(bytes)
+  if (bytes.byteLength >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder('utf-16le').decode(bytes)
+  if (bytes.byteLength >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder('utf-16be').decode(bytes)
+
+  const headerMatch = /;\s*charset\s*=\s*("?)([^";\s]+)\1/iu.exec(typeof contentTypeHeader === 'string' ? contentTypeHeader : '')
+  let decoder = headerMatch === null ? null : decoderFor(headerMatch[2])
+  if (decoder === null) {
+    // ASCII-compatible sniff: every charset label is ASCII, so latin1 is safe here.
+    const head = new TextDecoder('latin1').decode(bytes.subarray(0, 2048))
+    const metaMatch =
+      /<meta\b[^>]*\bcharset\s*=\s*["']?([a-z0-9_.:-]+)/iu.exec(head) ??
+      /<meta\b[^>]*http-equiv\s*=\s*["']?content-type["']?[^>]*content\s*=\s*["'][^"']*charset\s*=\s*([a-z0-9_.:-]+)/iu.exec(head)
+    if (metaMatch !== null) decoder = decoderFor(metaMatch[1])
+  }
+  // A UTF-16 label in a meta tag is a known mislabel; the bytes are ASCII-compatible.
+  if (decoder === null || decoder.encoding.startsWith('utf-16')) return decodeUtf8(bytes)
+  return decoder.decode(bytes)
+}
+
 /** Request a JSON discovery endpoint without forwarding auth across redirects. */
 async function requestApiJson(rawUrl, config) {
   const { fetchImpl, lookupImpl, timeoutMs, method = 'GET', headers = {}, body } = config
@@ -971,7 +1252,7 @@ async function requestApiJson(rawUrl, config) {
     response = await fetchImpl(url.href, {
       method,
       headers: {
-        'user-agent': API_USER_AGENT,
+        'user-agent': apiUserAgent(),
         accept: 'application/json',
         ...headers,
       },
@@ -1174,40 +1455,82 @@ function pageDraft(meta, pageUrl, image) {
  * Direct image URLs are stored as-is; HTML pages require a preview image and
  * otherwise fail with `no-preview-image`. Each input is independent, so one
  * failure never aborts the batch. Duplicate URLs (exact string) are skipped.
+ * Links are fetched concurrently (default 4 at a time); results keep input order.
+ *
+ * `options.isKnownSourceUrl(url)` lets the host skip work for references it
+ * already holds: a known input link is never fetched, and a page whose final or
+ * canonical URL is known skips its preview-image download. Skipped links are
+ * reported in `known` (the matching provenance URL), not as drafts.
  *
  * @param urls - array of 1..20 link strings.
- * @param options - `{ fetchImpl, lookupImpl, timeoutMs, tags, notes }`; the
- * `tags`/`notes` inputs are user-owned and merged by the host after adapters,
- * so drafts always carry provider tags/notes only.
- * @returns `{ drafts, failures }`.
+ * @param options - `{ fetchImpl, lookupImpl, timeoutMs, concurrency, isKnownSourceUrl }`.
+ *   User tags/notes are merged by the host after adapters, so drafts always
+ *   carry provider tags/notes only.
+ * @returns `{ drafts, failures, known }`.
  */
 export async function captureReferences(urls, options = {}) {
   const inputs = normalizeBatch(urls, MAX_IMPORT_URLS, 'urls', 'invalid-url')
   const transport = resolveTransport(options, DEFAULT_PAGE_TIMEOUT_MS)
+  const isKnown = resolveKnownSource(options)
   const seen = new Set()
-  const drafts = []
-  const failures = []
+  const entries = []
 
   for (const raw of inputs) {
     const input = typeof raw === 'string' ? raw.trim() : ''
     if (input === '') {
-      failures.push({ input, code: 'invalid-url', message: 'Link is not a valid URL.' })
+      entries.push({ failure: { input, code: 'invalid-url', message: 'Link is not a valid URL.' } })
       continue
     }
     if (seen.has(input)) continue
     seen.add(input)
-    try {
-      const draft = await captureOne(input, transport)
-      drafts.push(draft)
-    } catch (error) {
-      failures.push(toFailure(input, error))
-    }
+    if (isKnown(input)) entries.push({ known: input })
+    else entries.push({ fetch: input })
   }
-  return { drafts, failures }
+
+  const outcomes = await mapConcurrent(entries, resolveConcurrency(options), async (entry) => {
+    if (entry.fetch === undefined) return entry
+    try {
+      const value = await captureOne(entry.fetch, transport, isKnown)
+      return typeof value.knownSourceUrl === 'string' ? { known: value.knownSourceUrl } : { draft: value }
+    } catch (error) {
+      return { failure: toFailure(entry.fetch, error) }
+    }
+  })
+
+  const drafts = []
+  const failures = []
+  const known = []
+  for (const outcome of outcomes) {
+    if (outcome.draft !== undefined) drafts.push(outcome.draft)
+    else if (outcome.failure !== undefined) failures.push(outcome.failure)
+    else if (outcome.known !== undefined) known.push(outcome.known)
+  }
+  return { drafts, failures, known }
 }
 
-/** Capture exactly one link (one fetch for an image, page + preview image otherwise). */
-async function captureOne(rawUrl, transport) {
+/**
+ * Download the first preview candidate that yields a supported image. Later
+ * candidates are only tried when an earlier one fails; the first error wins
+ * when every candidate fails (it describes the page's primary preview).
+ */
+async function downloadFirstPreview(candidates, transport) {
+  let firstError = null
+  for (const candidate of candidates.slice(0, MAX_PREVIEW_CANDIDATES)) {
+    try {
+      return await downloadImage(candidate, transport)
+    } catch (error) {
+      if (firstError === null) firstError = error
+    }
+  }
+  throw firstError ?? new SourceError('no-preview-image', 'No preview image found; upload a screenshot instead.')
+}
+
+/**
+ * Capture exactly one link (one fetch for an image, page + preview image
+ * otherwise). Returns `{ knownSourceUrl }` instead of a draft when the page's
+ * provenance URL is already known, before downloading its preview image.
+ */
+async function captureOne(rawUrl, transport, isKnown = () => false) {
   const result = await requestWithRedirects(rawUrl, {
     ...transport,
     headers: { accept: 'text/html,application/xhtml+xml,image/*;q=0.9,*/*;q=0.5' },
@@ -1236,6 +1559,7 @@ async function captureOne(rawUrl, transport) {
 
   if (isImageResponse) {
     if (mediaType === '') throw new SourceError('invalid-image', 'The image could not be read.')
+    if (isKnown(finalUrl.href)) return { knownSourceUrl: finalUrl.href }
     return makeDraft({
       name: imageNameFromUrl(finalUrl),
       notes: `Image from ${host}.`,
@@ -1255,11 +1579,15 @@ async function captureOne(rawUrl, transport) {
     throw new SourceError('upstream-error', 'The page is too large to read.')
   }
 
-  const meta = extractPageMetadata(decodeUtf8(result.bytes), finalUrl.href)
+  const meta = extractPageMetadata(decodeHtml(result.bytes, readHeader(result, 'content-type')), finalUrl.href)
+  // The draft's provenance is the canonical URL (else the final URL); a page
+  // the host already holds needs no preview download.
+  const provenance = meta.canonical === '' ? finalUrl.href : meta.canonical
+  if (isKnown(provenance)) return { knownSourceUrl: provenance }
   if (meta.imageUrl === '') {
     throw new SourceError('no-preview-image', 'No preview image found; upload a screenshot instead.')
   }
-  const image = await downloadImage(meta.imageUrl, transport)
+  const image = await downloadFirstPreview(meta.imageCandidates, transport)
   return pageDraft(meta, finalUrl, image)
 }
 
@@ -1360,9 +1688,10 @@ async function mobbinDraft(screen, context) {
     throw new SourceError('no-preview-image', 'This Mobbin screen has no preview image.')
   }
 
+  const mobbinUrl = safeSourceUrl(screen?.mobbin_url)
+  if (context.isKnown(mobbinUrl)) return { knownSourceUrl: mobbinUrl }
   const image = await downloadImage(imageUrl.trim(), transport)
   const appName = typeof screen?.app_name === 'string' ? collapse(screen.app_name) : ''
-  const mobbinUrl = safeSourceUrl(screen?.mobbin_url)
   const id = typeof screen?.id === 'string' || typeof screen?.id === 'number' ? String(screen.id) : ''
   const name = appName === '' ? query : `${appName} — ${query}`
 
@@ -1406,17 +1735,36 @@ async function discoverMobbin(request, transport, endpoints, options) {
     throw new SourceError('upstream-error', 'Mobbin returned an unexpected response.')
   }
 
+  const context = { query: request.query, platform: request.platform, transport, isKnown: resolveKnownSource(options) }
+  return collectCandidateDrafts(body.screens.slice(0, request.limit), options, mobbinScreenLabel, (screen) =>
+    mobbinDraft(screen, context),
+  )
+}
+
+/**
+ * Build drafts for discovery candidates concurrently, keeping result order.
+ * A builder returns a draft, or `{ knownSourceUrl }` for a candidate the host
+ * already holds; a thrown error becomes a per-candidate failure.
+ * @returns `{ drafts, failures, known }`.
+ */
+async function collectCandidateDrafts(candidates, options, labelOf, build) {
+  const outcomes = await mapConcurrent(candidates, resolveConcurrency(options), async (candidate) => {
+    try {
+      const value = await build(candidate)
+      return typeof value.knownSourceUrl === 'string' ? { known: value.knownSourceUrl } : { draft: value }
+    } catch (error) {
+      return { failure: toFailure(labelOf(candidate), error) }
+    }
+  })
   const drafts = []
   const failures = []
-  for (const screen of body.screens.slice(0, request.limit)) {
-    const label = mobbinScreenLabel(screen)
-    try {
-      drafts.push(await mobbinDraft(screen, { query: request.query, platform: request.platform, transport }))
-    } catch (error) {
-      failures.push(toFailure(label, error))
-    }
+  const known = []
+  for (const outcome of outcomes) {
+    if (outcome.draft !== undefined) drafts.push(outcome.draft)
+    else if (outcome.failure !== undefined) failures.push(outcome.failure)
+    else known.push(outcome.known)
   }
-  return { drafts, failures }
+  return { drafts, failures, known }
 }
 
 /** Pick the best available image URL from one Are.na block. */
@@ -1442,15 +1790,16 @@ function arenaBlockLabel(block) {
 }
 
 /** Build one Are.na draft. */
-async function arenaDraft(block, transport) {
+async function arenaDraft(block, transport, isKnown) {
   const imageUrl = arenaImageUrl(block).trim()
   if (imageUrl === '') throw new SourceError('no-preview-image', 'This Are.na block has no image.')
 
-  const image = await downloadImage(imageUrl, transport)
   const id = typeof block?.id === 'string' || typeof block?.id === 'number' ? String(block.id) : ''
-  const title = firstClean([block?.title, block?.source?.title])
   const blockUrl = id === '' ? '' : `${ARENA_BLOCK_BASE}${encodeURIComponent(id)}`
   const sourceUrl = safeSourceUrl(block?.source?.url) || blockUrl
+  if (isKnown(sourceUrl)) return { knownSourceUrl: sourceUrl }
+  const image = await downloadImage(imageUrl, transport)
+  const title = firstClean([block?.title, block?.source?.title])
 
   let notes = id === '' ? 'Are.na reference' : `Are.na block ${id}`
   if (title !== '') notes += ` — ${title}`
@@ -1468,7 +1817,7 @@ async function arenaDraft(block, transport) {
 }
 
 /** Search Are.na publicly (no key). */
-async function discoverArena(request, transport, endpoints) {
+async function discoverArena(request, transport, endpoints, options) {
   const searchUrl = endpoints.arenaSearch
   const url = new URL(searchUrl)
   url.searchParams.set('q', request.query)
@@ -1486,20 +1835,13 @@ async function discoverArena(request, transport, endpoints) {
     throw new SourceError('upstream-error', 'Are.na returned an unexpected response.')
   }
 
-  const drafts = []
-  const failures = []
   // Are.na's result list mixes image and text blocks. Only image blocks count
   // against the requested limit; text blocks must not consume the quota.
   const imageBlocks = body.blocks.filter((block) => arenaImageUrl(block).trim() !== '')
-  for (const block of imageBlocks.slice(0, request.limit)) {
-    const label = arenaBlockLabel(block)
-    try {
-      drafts.push(await arenaDraft(block, transport))
-    } catch (error) {
-      failures.push(toFailure(label, error))
-    }
-  }
-  return { drafts, failures }
+  const isKnown = resolveKnownSource(options)
+  return collectCandidateDrafts(imageBlocks.slice(0, request.limit), options, arenaBlockLabel, (block) =>
+    arenaDraft(block, transport, isKnown),
+  )
 }
 
 /**
@@ -1510,8 +1852,13 @@ async function discoverArena(request, transport, endpoints) {
  * `failures` so one bad result never aborts the batch.
  *
  * @param input - `{ source: 'mobbin'|'arena', query, platform?, limit? }`.
- * @param options - `{ config, fetchImpl, lookupImpl, endpoints, timeoutMs }`.
- * @returns `{ drafts, failures }`.
+ * Candidate images download concurrently (default 4); results keep the
+ * source's order. A candidate whose provenance URL satisfies
+ * `options.isKnownSourceUrl` is reported in `known` without downloading.
+ *
+ * @param input - `{ source: 'mobbin'|'arena', query, platform?, limit? }`.
+ * @param options - `{ config, fetchImpl, lookupImpl, endpoints, timeoutMs, concurrency, isKnownSourceUrl }`.
+ * @returns `{ drafts, failures, known }`.
  */
 export async function discoverReferences(input, options = {}) {
   const request = normalizeDiscoverInput(input)
@@ -1519,7 +1866,7 @@ export async function discoverReferences(input, options = {}) {
   const transport = resolveTransport(config, DEFAULT_API_TIMEOUT_MS)
   const endpoints = resolveEndpoints(config.endpoints)
   if (request.source === 'mobbin') return discoverMobbin(request, transport, endpoints, config)
-  return discoverArena(request, transport, endpoints)
+  return discoverArena(request, transport, endpoints, config)
 }
 
 // ---------------------------------------------------------------------------

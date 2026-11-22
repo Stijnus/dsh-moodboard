@@ -216,7 +216,7 @@ function emptyBoard() {
 
 /** Deep clone the in-memory (plain JSON) board before mutating a draft. */
 function cloneBoard(board) {
-  return JSON.parse(JSON.stringify(board))
+  return structuredClone(board)
 }
 
 /**
@@ -687,6 +687,7 @@ async function handleImport(store, ctx, request, response) {
     imported: result.imported.map(imageView),
     duplicates: result.duplicates.map(imageView),
     failures: result.failures,
+    ...commitInfo(store),
   })
 }
 
@@ -694,10 +695,7 @@ async function handleImport(store, ctx, request, response) {
 async function handleActive(store, response) {
   await store.ready()
   const board = store.current()
-  const ordered = sortImages(board.images)
-  const pinned = ordered.filter((image) => image.pinned)
-  const fallback = pinned.length === 0
-  const selection = fallback ? ordered : pinned
+  const { selection, fallback } = activeGuide(sortImages(board.images))
   const tags = collectTags(board.images)
   sendJson(response, 200, {
     ok: true,
@@ -737,15 +735,20 @@ async function handleCreateImage(store, ctx, request, response) {
   const notes = readOptionalNotes(body)
   const sourceUrl = readOptionalSourceUrl(body)
 
-  const image = await store.mutate(async (draft) => {
-    if (draft.images.length >= MAX_IMAGES) {
-      throw httpError('board-full', `the moodboard already holds the maximum of ${MAX_IMAGES} images`)
-    }
-    const ref = await saveImageBytes(ctx, upload)
+  // Store the bytes before taking the write lock so a slow attachment save
+  // never blocks other board edits. Attachments are content-addressed and
+  // never deleted, so a commit that loses a capacity race only leaves bytes
+  // that a later identical upload reuses.
+  await store.ready()
+  if (store.current().images.length >= MAX_IMAGES) throw httpError('board-full', BOARD_FULL_MESSAGE)
+  const ref = await saveImageBytes(ctx, upload)
+
+  const image = await store.mutate((draft) => {
+    if (draft.images.length >= MAX_IMAGES) throw httpError('board-full', BOARD_FULL_MESSAGE)
     return createImageEntry(draft, { ref, name: upload.name, tags, notes, sourceUrl })
   })
 
-  sendJson(response, 200, { ok: true, image: imageView(image) })
+  sendJson(response, 200, { ok: true, image: imageView(image), ...commitInfo(store) })
 }
 
 /** `PATCH /api/images/<id>` */
@@ -760,7 +763,7 @@ async function handlePatchImage(store, request, response, id) {
     return target
   })
 
-  sendJson(response, 200, { ok: true, image: imageView(image) })
+  sendJson(response, 200, { ok: true, image: imageView(image), ...commitInfo(store) })
 }
 
 /** `POST /api/images/<id>/replace` */
@@ -768,17 +771,21 @@ async function handleReplaceImage(store, ctx, request, response, id) {
   const body = await readJsonBody(request, MAX_IMAGE_BODY_BYTES, 'image-too-large')
   const upload = readImageUpload(body)
 
-  const image = await store.mutate(async (draft) => {
+  // Check the target, store the bytes outside the write lock, then re-check.
+  await store.ready()
+  if (!store.current().images.some((entry) => entry.id === id)) throw notFoundImage(id)
+  const ref = await saveImageBytes(ctx, upload)
+
+  const image = await store.mutate((draft) => {
     const target = draft.images.find((entry) => entry.id === id)
     if (target === undefined) throw notFoundImage(id)
-    const ref = await saveImageBytes(ctx, upload)
     target.attachment = { ...ref }
     if (upload.name !== '') target.name = upload.name
     target.updatedAt = new Date().toISOString()
     return target
   })
 
-  sendJson(response, 200, { ok: true, image: imageView(image) })
+  sendJson(response, 200, { ok: true, image: imageView(image), ...commitInfo(store) })
 }
 
 /** `DELETE /api/images/<id>` */
@@ -788,7 +795,7 @@ async function handleDeleteImage(store, response, id) {
     if (index === -1) throw notFoundImage(id)
     draft.images.splice(index, 1)
   })
-  sendJson(response, 200, { ok: true, removed: id })
+  sendJson(response, 200, { ok: true, removed: id, ...commitInfo(store) })
 }
 
 /** `POST /api/images/reorder` — apply a complete manual gallery order in one write. */
@@ -813,7 +820,7 @@ async function handleReorderImages(store, request, response) {
     draft.nextOrder = ids.length
   })
 
-  sendJson(response, 200, { ok: true })
+  sendJson(response, 200, { ok: true, ...commitInfo(store) })
 }
 
 /** `POST /api/images/bulk` — pin, add/remove tags, or delete several images at once. */
@@ -851,7 +858,7 @@ async function handleBulkImages(store, request, response) {
     return { updated: ids.length, removed: 0 }
   })
 
-  sendJson(response, 200, { ok: true, updated: result.updated, removed: result.removed })
+  sendJson(response, 200, { ok: true, updated: result.updated, removed: result.removed, ...commitInfo(store) })
 }
 
 /** `POST /api/tags/merge` — rename or merge one tag across the whole board. */
@@ -887,7 +894,7 @@ async function handleMergeTags(store, request, response) {
     updated = touched
   })
 
-  sendJson(response, 200, { ok: true, updated })
+  sendJson(response, 200, { ok: true, updated, ...commitInfo(store) })
 }
 
 /** `GET /image/<id>` — raw normalized bytes with immutable caching. */
@@ -959,6 +966,17 @@ function mapAttachmentError(error) {
 function attachmentErrorCode(error) {
   if (error instanceof Error && 'code' in error && typeof error.code === 'string') return error.code
   return ''
+}
+
+/**
+ * The revision and board timestamp right after a committed write. Handlers
+ * read it synchronously after `store.mutate` resolves, before another commit
+ * can land (every commit awaits a disk write). A client whose last applied
+ * revision is exactly one lower can adopt its own write without re-reading
+ * `/api/state`; any other value means another write landed too.
+ */
+function commitInfo(store) {
+  return { revision: store.getRevision(), updatedAt: store.current().updatedAt }
 }
 
 /** `not-found` failure for an unknown image id. */
@@ -1056,9 +1074,9 @@ function requireDiscoverLimit(value) {
  * @returns the adapter result (`{ drafts, failures }`); batch-level adapter
  *   failures become route-level `HttpError`s.
  */
-async function collectImportDrafts(store, plan) {
+async function collectImportDrafts(store, plan, isKnownSourceUrl) {
   try {
-    if (plan.mode === 'urls') return await captureReferences(plan.urls, {})
+    if (plan.mode === 'urls') return await captureReferences(plan.urls, { isKnownSourceUrl })
     if (plan.mode === 'paths') return await readReferenceFiles(plan.paths, {})
 
     const config = readSourceConfig(store.dataDir)
@@ -1073,7 +1091,7 @@ async function collectImportDrafts(store, plan) {
     const input = { source: plan.source, query: plan.query }
     if (plan.platform !== undefined) input.platform = plan.platform
     if (plan.limit !== undefined) input.limit = plan.limit
-    return await discoverReferences(input, { config })
+    return await discoverReferences(input, { config, isKnownSourceUrl })
   } catch (error) {
     if (error instanceof HttpError) throw error
     throw importAdapterError(error)
@@ -1123,49 +1141,112 @@ function normalizeImportFailures(values) {
  * @returns `{ imported, duplicates, failures }` (stored image entries).
  */
 async function runImport(store, ctx, plan) {
-  const collected = await collectImportDrafts(store, plan)
+  // The board snapshot lets the adapters skip links and candidates that are
+  // already on the board before any network read or image download.
+  await store.ready()
+  const snapshot = store.current()
+  const boardSources = new Set()
+  const boardAttachments = new Set()
+  for (const image of snapshot.images) {
+    if (image.sourceUrl !== '') boardSources.add(image.sourceUrl)
+    boardAttachments.add(image.attachment.attachmentId)
+  }
+  const isKnownSourceUrl = (url) => {
+    const normalized = normalizeSourceUrl(typeof url === 'string' ? url : '')
+    return normalized !== '' && boardSources.has(normalized)
+  }
+
+  const collected = await collectImportDrafts(store, plan, isKnownSourceUrl)
   const drafts = isPlainObject(collected) && Array.isArray(collected.drafts) ? collected.drafts : []
   const failures = normalizeImportFailures(isPlainObject(collected) ? collected.failures : undefined)
 
-  return store.mutate(async (draftBoard) => {
+  // Phase 1, outside the write lock: dedupe and capacity against the current
+  // board, then store the bytes. Saving up to 20 images can be slow, and other
+  // board edits must not queue behind it.
+  const planned = []
+  // References the adapters skipped as already known become duplicates.
+  if (isPlainObject(collected) && Array.isArray(collected.known)) {
+    for (const url of collected.known) {
+      const sourceUrl = normalizeSourceUrl(typeof url === 'string' ? url : '')
+      if (sourceUrl !== '') planned.push({ duplicate: true, sourceUrl, attachmentId: '' })
+    }
+  }
+  const batchSources = new Set()
+  const batchAttachments = new Set()
+  let saved = 0
+  let full = false
+  for (const value of drafts) {
+    if (!isPlainObject(value)) {
+      failures.push({ input: '', code: 'invalid-image', message: 'the source returned an invalid reference' })
+      continue
+    }
+    const sourceUrl = normalizeSourceUrl(typeof value.sourceUrl === 'string' ? value.sourceUrl : '')
+    const label = importDraftLabel(value, sourceUrl)
+
+    // 1. Dedupe: a reference already on the board (or earlier in this batch)
+    //    is reported, not saved. The entry is resolved at commit time.
+    if (sourceUrl !== '' && (boardSources.has(sourceUrl) || batchSources.has(sourceUrl))) {
+      planned.push({ duplicate: true, sourceUrl, attachmentId: '' })
+      continue
+    }
+
+    // 2. Capacity: once full, every remaining draft becomes a failure.
+    if (full || snapshot.images.length + saved >= MAX_IMAGES) {
+      full = true
+      failures.push({ input: label, code: 'board-full', message: BOARD_FULL_MESSAGE })
+      continue
+    }
+
+    // 3. Save through the attachment service; one bad draft never aborts the batch.
+    let stored
+    try {
+      stored = await saveImportDraft(ctx, value)
+    } catch (error) {
+      failures.push(importFailureFromError(label, error))
+      continue
+    }
+    // 4. Content dedupe: attachments are content-addressed, so the same bytes
+    //    under another URL (tracking params, a mirror, a shared og:image)
+    //    resolve to an attachment id that is already on the board.
+    const attachmentId = stored.ref.attachmentId
+    if (boardAttachments.has(attachmentId) || batchAttachments.has(attachmentId)) {
+      planned.push({ duplicate: true, sourceUrl: '', attachmentId })
+      continue
+    }
+    saved += 1
+    if (sourceUrl !== '') batchSources.add(sourceUrl)
+    batchAttachments.add(attachmentId)
+    planned.push({ duplicate: false, value, sourceUrl, label, stored, attachmentId })
+  }
+
+  // Phase 2, inside the write lock: re-check against the live board (another
+  // write may have landed meanwhile) and commit every entry in one write.
+  return store.mutate((draftBoard) => {
     const imported = []
     const duplicates = []
     const bySourceUrl = new Map()
+    const byAttachment = new Map()
     for (const image of draftBoard.images) {
       if (image.sourceUrl !== '' && !bySourceUrl.has(image.sourceUrl)) bySourceUrl.set(image.sourceUrl, image)
+      if (!byAttachment.has(image.attachment.attachmentId)) byAttachment.set(image.attachment.attachmentId, image)
     }
 
-    let full = false
-    for (const value of drafts) {
-      if (!isPlainObject(value)) {
-        failures.push({ input: '', code: 'invalid-image', message: 'the source returned an invalid reference' })
+    for (const entry of planned) {
+      const existing =
+        (entry.sourceUrl !== '' ? bySourceUrl.get(entry.sourceUrl) : undefined) ??
+        (entry.attachmentId !== '' ? byAttachment.get(entry.attachmentId) : undefined)
+      if (existing !== undefined) {
+        duplicates.push(existing)
         continue
       }
-      const sourceUrl = normalizeSourceUrl(typeof value.sourceUrl === 'string' ? value.sourceUrl : '')
-      const label = importDraftLabel(value, sourceUrl)
-
-      // 1. Dedupe: a reference already on the board is reported, not saved.
-      if (sourceUrl !== '' && bySourceUrl.has(sourceUrl)) {
-        duplicates.push(bySourceUrl.get(sourceUrl))
-        continue
-      }
-
-      // 2. Capacity: once full, every remaining draft becomes a failure.
-      if (full || draftBoard.images.length >= MAX_IMAGES) {
-        full = true
-        failures.push({ input: label, code: 'board-full', message: BOARD_FULL_MESSAGE })
+      // A duplicate whose original left the board (or lost a race) has nothing to report.
+      if (entry.duplicate) continue
+      if (draftBoard.images.length >= MAX_IMAGES) {
+        failures.push({ input: entry.label, code: 'board-full', message: BOARD_FULL_MESSAGE })
         continue
       }
 
-      // 3. Save through the attachment service; one bad draft never aborts the batch.
-      let stored
-      try {
-        stored = await saveImportDraft(ctx, value)
-      } catch (error) {
-        failures.push(importFailureFromError(label, error))
-        continue
-      }
-
+      const { value, sourceUrl, stored } = entry
       const image = createImageEntry(draftBoard, {
         ref: stored.ref,
         name: stored.name,
@@ -1179,6 +1260,7 @@ async function runImport(store, ctx, plan) {
       }
       imported.push(image)
       if (sourceUrl !== '') bySourceUrl.set(sourceUrl, image)
+      byAttachment.set(entry.attachmentId, image)
     }
 
     return { imported, duplicates, failures }
@@ -1601,6 +1683,16 @@ function sortImages(images) {
   return [...images].sort(compareImages)
 }
 
+/**
+ * The active style guide over already-sorted images: the pinned references,
+ * or the whole board when none are pinned (`fallback`).
+ */
+function activeGuide(ordered) {
+  const pinned = ordered.filter((image) => image.pinned)
+  const fallback = pinned.length === 0
+  return { pinned, fallback, selection: fallback ? ordered : pinned }
+}
+
 /** HTTP ImageView for one stored image. */
 function imageView(image) {
   const attachment = image.attachment
@@ -1716,9 +1808,9 @@ function styleGuideSectionText(store) {
   const board = store.current()
   if (board.images.length === 0) return ''
 
-  const ordered = sortImages(board.images)
-  const pinned = ordered.filter((image) => image.pinned)
-  const references = (pinned.length > 0 ? pinned : ordered).slice(0, 5)
+  const guide = activeGuide(sortImages(board.images))
+  const pinned = guide.pinned
+  const references = guide.selection.slice(0, 5)
   const count = board.images.length
   const noun = count === 1 ? 'image' : 'images'
   const intro =
@@ -1946,7 +2038,9 @@ function createMoodboardTool(store, ctx) {
     },
     presentCall(args) {
       const action = isPlainObject(args) && typeof args.action === 'string' ? args.action : 'active'
-      return { card: 'generic', title: `Moodboard: ${action}`, kind: 'read' }
+      // `import` fetches the network, reads local files and writes the board,
+      // so it must not be presented as a read-only call.
+      return { card: 'generic', title: `Moodboard: ${action}`, kind: action === 'import' ? 'other' : 'read' }
     },
     isConcurrencySafe: () => true,
   }
@@ -2045,9 +2139,7 @@ async function executeMoodboard(store, ctx, rawArgs) {
   const ordered = sortImages(store.current().images)
 
   if (action === 'workflow') {
-    const pinned = ordered.filter((image) => image.pinned)
-    const fallback = pinned.length === 0
-    const selection = fallback ? ordered : pinned
+    const { selection, fallback } = activeGuide(ordered)
     const activeBrief = buildBrief(selection, fallback ? 'fallback' : 'pinned')
     return {
       ok: true,
@@ -2095,9 +2187,7 @@ async function executeMoodboard(store, ctx, rawArgs) {
   }
 
   if (action === 'active' || action === 'brief') {
-    const pinned = ordered.filter((image) => image.pinned)
-    const fallback = pinned.length === 0
-    const selection = fallback ? ordered : pinned
+    const { selection, fallback } = activeGuide(ordered)
     const brief = buildBrief(selection, fallback ? 'fallback' : 'pinned')
     return {
       ok: true,

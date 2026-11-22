@@ -103,7 +103,7 @@ yourself with a bounded `data`/`end` reader.
     presentationMeta(args, value) { /* optional */ },
   },
   async execute(args, exec) { return value },
-  presentCall(args) { return { card: 'generic', title: '…', kind: 'read' } },
+  presentCall(args) { return { card: 'generic', title: '…', kind: args.action === 'import' ? 'other' : 'read' } },
   isConcurrencySafe: () => true,
 }
 ```
@@ -368,12 +368,16 @@ Behaviour:
 
 - All state lives in one module-level store shared by every mount
   (`useSyncExternalStore`). Fetch `GET /moodboard/api/state` on plugin
-  activation and after every mutation; optimistic updates are optional but the
-  store must reconcile with server responses.
+  activation. Every mutation response carries `revision` and `updatedAt`: when
+  `revision` is exactly one above the last applied revision, apply the change
+  locally (the returned `image`, the removal, the new order) and adopt it;
+  otherwise reconcile with one silent `/api/state` read. Pin toggles are
+  optimistic and roll back on failure.
 - **External-write refresh:** keep the board in sync with writes made outside
   this client session (the agent uploading references over HTTP, another window,
   a reconnect). Poll `GET /moodboard/api/revision` about every 3 s while the
-  document is visible, and check immediately on window `focus`, `online` and
+  document is visible and a Moodboard page is mounted (every 30 s otherwise,
+  since only the composer counts depend on it), and check immediately on window `focus`, `online` and
   visibility return. When the revision (or the board `updatedAt`, so a Host
   reload is noticed) differs from the last applied state, re-read `/api/state`
   **silently**: keep the loaded gallery, do not show the loading skeleton, and
@@ -386,13 +390,17 @@ Behaviour:
 - Images: fetch `imageUrl` as a blob (`fetch(url, { credentials: 'same-origin' })`),
   cache the object URL per `id + imageUrl` in a module Map. Revoke obsolete
   revisions on board refresh and all remaining URLs on plugin disposal; discard
-  in-flight results for images no longer on the board. Render `<img alt={name}>`. Thumbnails can be CSS-sized (no
+  in-flight results for images no longer on the board. Thumbnails release their
+  URL when they scroll ~1200 px out of view, and unused URLs beyond 48 are
+  revoked least-recently-used first (a re-show refetches from the HTTP cache).
+  Render `<img alt={name} decoding="async">`. Thumbnails can be CSS-sized (no
   server-side thumbnail route).
-- Client-side downscale before upload: draw the file onto a canvas with max
-  edge 1600 px, export as `image/webp` quality 0.85 (fallback `image/jpeg`
-  0.85 when WebP encoding is unsupported/throws), upload the resulting base64.
-  Keep GIF as-is only if no canvas decode works; otherwise the canvas path is
-  mandatory. Skip files > 25 MB with a readable error.
+- Upload preparation: a PNG/JPEG/WebP/GIF whose longest edge is at most
+  1600 px and whose size is at most 8 MiB is uploaded unchanged (keeps crisp
+  screenshot text and GIF animation). Larger files are drawn onto a canvas with
+  max edge 1600 px and exported with `canvas.toBlob`: PNG sources as lossless
+  `image/png`, others as `image/webp` 0.85 (fallback `image/jpeg` 0.85). Base64
+  comes from `FileReader`. Skip files > 25 MB with a readable error.
 - Errors: banner with the server `error.message`; never throw out of a
   handler; every async action catches.
 - Accessibility: real `<button>`s, `aria-label` on icon buttons, `aria-live`
@@ -528,18 +536,30 @@ needs it.
   loopback, ULA, link-local, IPv4-mapped private).
 - Resolve other hostnames with `node:dns/promises` `lookup(host, { all: true })`
   and reject if **any** address is private; DNS failures are `upstream-error`.
+- The default transport repeats that check inside the socket's own DNS lookup
+  (`createPinnedFetch`), so the address actually connected to is the one that
+  was validated; a rebinding answer at connect time is `unsupported-url`.
 - Follow at most 3 redirects manually, re-validating every hop.
 - Timeout every request (default 15 s page, 25 s API); cap page bodies at
   `MAX_PAGE_BYTES` and images at `MAX_IMAGE_BYTES` while reading.
 - Page/image capture sends a normal browser `user-agent` plus
-  `dsh-moodboard/0.3`. Discovery API requests instead send the honest
-  `dsh-moodboard/0.3 (+https://github.com/Stijnus/dsh-moodboard)` user-agent:
+  `dsh-moodboard/<major.minor>` (read from `package.json`). Discovery API requests instead send the honest
+  `dsh-moodboard/<major.minor> (+https://github.com/Stijnus/dsh-moodboard)` user-agent:
   Are.na rejects a browser UA as unidentified automation. Never forward cookies
   or auth headers to arbitrary hosts.
 
 ### Capture (`captureReferences`)
 
-- Accepts 1..20 URLs. Dedupe within the batch by exact URL.
+- Accepts 1..20 URLs. Dedupe within the batch by exact URL. Links are fetched
+  concurrently (default 4; `options.concurrency` 1..8); results keep input order.
+- `options.isKnownSourceUrl(url)`: a known input link is not fetched, and a
+  page whose canonical/final URL is known skips its preview download; both are
+  returned in `known` (adapters return `{ drafts, failures, known }`; discovery
+  applies the same check before each candidate's image download).
+- Preview candidates are tried in priority order (up to 4) until one yields a
+  supported image. HTML is decoded with its charset (BOM, `content-type`
+  charset, then `<meta charset>`), and the body is only scanned for
+  `<img>`/`itemprop` candidates when the head has no OG/Twitter/`image_src` image.
 - If a URL serves an image content type (or bytes with an image signature),
   capture it directly: name from the URL path, notes `Image from <host>.`,
   tags `['web', <host>]`, sourceUrl = final URL.
@@ -558,8 +578,10 @@ needs it.
 - A Dribbble host that returns a bot-challenge/empty body is
   `blocked-source` with the browser-MCP guidance; do not retry aggressively.
 - No preview image → `no-preview-image` (suggest uploading a screenshot).
-- Options: `{ fetchImpl, lookupImpl, timeoutMs }` for tests; defaults use
-  global `fetch` and `dns.lookup`. User `tags`/`notes` are merged by the host,
+- Options: `{ fetchImpl, lookupImpl, timeoutMs }` for tests; defaults use the
+  pinned `node:http`/`node:https` transport and `dns.lookup`
+  (`setDefaultFetch` swaps the default for offline Host-route tests). User
+  `tags`/`notes` are merged by the host,
   not by this adapter.
 
 ### Discover (`discoverReferences`)
@@ -625,9 +647,12 @@ Exactly one intake mode (`urls` | `paths` | `source`+`query`); otherwise
 
 Import flow is shared by the HTTP route and the agent tool:
 
-1. Call the adapter; keep `drafts` and `failures`.
+1. Call the adapter with `isKnownSourceUrl` (normalized `sourceUrl`s already on
+   the board); keep `drafts`, `failures`, and turn `known` into duplicates.
 2. For each draft: dedupe by non-empty `sourceUrl` already on the board →
-   append the existing `ImageView` to `duplicates` and skip the save.
+   append the existing `ImageView` to `duplicates` and skip the save. After the
+   save, dedupe by `attachmentId` (attachments are content-addressed): the same
+   bytes under another URL are a duplicate, not a new image.
 3. Board capacity: stop importing and append a `board-full` failure for each
    remaining draft.
 4. Merge notes: user notes first, blank line, provider notes (clip 4000).

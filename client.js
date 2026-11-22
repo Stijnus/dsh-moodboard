@@ -18,7 +18,9 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react')
     const h = React.createElement
-    const { useState, useEffect, useRef, useSyncExternalStore } = React
+    const { useState, useEffect, useRef, useMemo, useSyncExternalStore } = React
+    /** `React.memo` when available (the verification harness's mini React has none). */
+    const memo = typeof React.memo === 'function' ? React.memo : (component) => component
 
     // ---------------------------------------------------------------------------
     // Constants
@@ -36,6 +38,16 @@ window.__ModuleLoader__.load({
     const REVISION_POLL_MS = 3000
     /** A hung revision read must not stall the poll forever. */
     const REVISION_TIMEOUT_MS = 5000
+    /**
+     * While no Moodboard page is mounted the ticker still runs every
+     * `REVISION_POLL_MS`, but only checks this often (the composer control only
+     * needs the image and pin counts). Focus/visibility/online still check at once.
+     */
+    const IDLE_REVISION_POLL_MS = 30000
+    /** Object URLs kept for thumbnails that are not currently on screen. */
+    const IMAGE_URL_CACHE_LIMIT = 48
+    /** Uploads at or under this size and `MAX_EDGE` are stored as-is (no re-encode). */
+    const PASSTHROUGH_MAX_BYTES = 8 * 1024 * 1024
     /** Quiet, user-initiated star link shown in the panel header. */
     const STAR_SUITE_URL = 'https://github.com/Stijnus?tab=repositories&q=dsh'
     const MAX_FILE_BYTES = 25 * 1024 * 1024
@@ -928,14 +940,52 @@ window.__ModuleLoader__.load({
 
     const imageUrlCache = new Map()
     const imageUrlInflight = new Map()
+    /** Mounted consumers per cache key; only unused entries are evicted. */
+    const imageUrlUsers = new Map()
     let liveImageKeys = new Set()
     let disposed = false
     /** Card to focus after a keyboard reorder refresh re-renders the gallery. */
     let pendingCardFocusId = null
 
+    function retainImageUrl(key) {
+      imageUrlUsers.set(key, (imageUrlUsers.get(key) || 0) + 1)
+    }
+
+    function releaseImageUrl(key) {
+      const count = (imageUrlUsers.get(key) || 0) - 1
+      if (count > 0) imageUrlUsers.set(key, count)
+      else imageUrlUsers.delete(key)
+      trimImageUrlCache()
+    }
+
+    /**
+     * Revoke the least recently used object URLs that no mounted thumbnail
+     * uses once the cache grows past `IMAGE_URL_CACHE_LIMIT`. Re-showing an
+     * evicted image refetches it from the browser's HTTP cache (the image URL is
+     * versioned and served `immutable`), so memory stays bounded on big boards.
+     */
+    function trimImageUrlCache() {
+      if (imageUrlCache.size <= IMAGE_URL_CACHE_LIMIT) return
+      for (const [key, objectUrl] of Array.from(imageUrlCache)) {
+        if (imageUrlCache.size <= IMAGE_URL_CACHE_LIMIT) break
+        if (imageUrlUsers.has(key)) continue
+        try {
+          URL.revokeObjectURL(objectUrl)
+        } catch (error) {
+          // Already revoked.
+        }
+        imageUrlCache.delete(key)
+      }
+    }
+
     function loadImageUrl(key, url) {
       const cached = imageUrlCache.get(key)
-      if (cached !== undefined) return Promise.resolve(cached)
+      if (cached !== undefined) {
+        // Map order is the LRU order: a hit moves the entry to the end.
+        imageUrlCache.delete(key)
+        imageUrlCache.set(key, cached)
+        return Promise.resolve(cached)
+      }
       const pending = imageUrlInflight.get(key)
       if (pending !== undefined) return pending
       const promise = (async () => {
@@ -949,6 +999,7 @@ window.__ModuleLoader__.load({
             throw createError('disposed', 'image-load')
           }
           imageUrlCache.set(key, objectUrl)
+          trimImageUrlCache()
           return objectUrl
         } finally {
           imageUrlInflight.delete(key)
@@ -969,6 +1020,7 @@ window.__ModuleLoader__.load({
       }
       imageUrlCache.clear()
       imageUrlInflight.clear()
+      imageUrlUsers.clear()
     }
 
     function useImageUrl(image, enabled = true) {
@@ -977,36 +1029,42 @@ window.__ModuleLoader__.load({
       const [url, setUrl] = useState(() => (key === '' || !active ? '' : imageUrlCache.get(key) || ''))
       useEffect(() => {
         if (key === '' || !active) {
-          if (key === '') setUrl('')
+          // An inactive (scrolled away) thumbnail drops its reference so the
+          // cache may evict and revoke it.
+          setUrl('')
           return undefined
         }
+        retainImageUrl(key)
+        let cancelled = false
         const cached = imageUrlCache.get(key)
         if (cached !== undefined) {
           setUrl(cached)
-          return undefined
+        } else {
+          setUrl('')
+          loadImageUrl(key, image.imageUrl)
+            .then((objectUrl) => {
+              if (!cancelled) setUrl(objectUrl)
+            })
+            .catch(() => {
+              if (!cancelled) setUrl('')
+            })
         }
-        let cancelled = false
-        setUrl('')
-        loadImageUrl(key, image.imageUrl)
-          .then((objectUrl) => {
-            if (!cancelled) setUrl(objectUrl)
-          })
-          .catch(() => {
-            if (!cancelled) setUrl('')
-          })
         return () => {
           cancelled = true
+          releaseImageUrl(key)
         }
       }, [key, active])
       return url
     }
 
     /**
-     * Track whether an element is near the viewport. Once visible it stays
-     * visible, so the wrapped resource is never unloaded again.
+     * Track whether an element is near the viewport. A sticky tracker (the
+     * default, used by the load-more sentinel) stays visible once seen; a
+     * non-sticky one (thumbnails) also reports leaving, so far-away images can
+     * release their object URLs.
      * @returns `[ref, inView]`; without IntersectionObserver it is always true.
      */
-    function useInView(enabled) {
+    function useInView(enabled, sticky = true) {
       const [inView, setInView] = useState(() => enabled !== true)
       const ref = useRef(null)
       useEffect(() => {
@@ -1014,7 +1072,7 @@ window.__ModuleLoader__.load({
           setInView(true)
           return undefined
         }
-        if (inView) return undefined
+        if (sticky && inView) return undefined
         const node = ref.current
         if (node === null || node === undefined || typeof IntersectionObserver !== 'function') {
           setInView(true)
@@ -1025,16 +1083,18 @@ window.__ModuleLoader__.load({
             for (const entry of entries) {
               if (entry.isIntersecting) {
                 setInView(true)
-                observer.disconnect()
+                if (sticky) observer.disconnect()
                 break
               }
+              if (!sticky) setInView(false)
             }
           },
-          { rootMargin: '400px 0px' },
+          // Thumbnails release well outside the viewport to avoid flicker.
+          { rootMargin: sticky ? '400px 0px' : '1200px 0px' },
         )
         observer.observe(node)
         return () => observer.disconnect()
-      }, [enabled, inView])
+      }, [enabled, sticky, sticky ? inView : false])
       return [ref, inView]
     }
 
@@ -1128,6 +1188,21 @@ window.__ModuleLoader__.load({
     let revisionCheckBusy = false
     /** Cleanup for the foreground poll installed by `startBoardSync`. */
     let boardSyncStop = null
+    /** Mounted Moodboard pages; with none, the ticker uses the idle cadence. */
+    let mountedPages = 0
+    /** When the last revision check started (ms), for the idle cadence. */
+    let lastRevisionCheckAt = 0
+
+    /** Count one mounted Moodboard page; returns the unmount cleanup. */
+    function trackPageMount() {
+      mountedPages += 1
+      let released = false
+      return () => {
+        if (released) return
+        released = true
+        mountedPages = Math.max(0, mountedPages - 1)
+      }
+    }
 
     function setState(patch) {
       snapshot = { ...snapshot, ...patch }
@@ -1151,6 +1226,54 @@ window.__ModuleLoader__.load({
       return snapshot
     }
 
+    /**
+     * Subscribe to one derived value of the store. The selector must return a
+     * primitive or an existing reference, so unrelated store changes (search
+     * typing, status text, upload progress) do not re-render the subscriber.
+     */
+    function useStoreSelector(selector) {
+      return useSyncExternalStore(subscribe, () => selector(snapshot))
+    }
+
+    /** Style elements this module added to `document.head` (removed on disposal). */
+    const injectedStyleIds = new Set()
+
+    /**
+     * Put a stylesheet in `document.head` once instead of re-rendering a large
+     * `<style>` child on every render. Without a document (tests) it falls back
+     * to rendering the `<style>` element.
+     */
+    function injectStyle(id, css) {
+      try {
+        if (typeof document !== 'undefined' && document !== null && document.head) {
+          let node = document.getElementById(id)
+          if (node === null) {
+            node = document.createElement('style')
+            node.id = id
+            document.head.appendChild(node)
+          }
+          if (node.textContent !== css) node.textContent = css
+          injectedStyleIds.add(id)
+          return null
+        }
+      } catch (error) {
+        // Fall through to the inline element.
+      }
+      return h('style', null, css)
+    }
+
+    function removeInjectedStyles() {
+      for (const id of injectedStyleIds) {
+        try {
+          const node = document.getElementById(id)
+          if (node !== null && node.parentNode) node.parentNode.removeChild(node)
+        } catch (error) {
+          // A detached document cannot be cleaned.
+        }
+      }
+      injectedStyleIds.clear()
+    }
+
     function clearError() {
       setState({ error: '' })
     }
@@ -1159,8 +1282,28 @@ window.__ModuleLoader__.load({
       setState({ statusText: typeof text === 'string' ? text : '' })
     }
 
+    /** Whether two normalized images render identically. */
+    function sameImage(left, right) {
+      if (left === undefined || right === undefined) return false
+      for (const key of Object.keys(right)) {
+        if (key === 'tags') continue
+        if (left[key] !== right[key]) return false
+      }
+      if (left.tags.length !== right.tags.length) return false
+      return left.tags.every((tag, index) => tag === right.tags[index])
+    }
+
     function applyBoard(rawBoard) {
       const board = normalizeBoard(rawBoard)
+      // Keep the previous object for every unchanged image so memoized cards
+      // skip re-rendering after a refresh that changed one image.
+      if (snapshot.board !== null) {
+        const previous = new Map(snapshot.board.images.map((image) => [image.id, image]))
+        board.images = board.images.map((image) => {
+          const earlier = previous.get(image.id)
+          return sameImage(earlier, image) ? earlier : image
+        })
+      }
       liveImageKeys = new Set(board.images.map(imageKey))
       for (const [key, objectUrl] of imageUrlCache) {
         if (liveImageKeys.has(key)) continue
@@ -1227,6 +1370,63 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** Host-style tag list: case-insensitive unique, first spelling kept, sorted. */
+    function hostTagList(images) {
+      const seen = new Map()
+      for (const image of images) {
+        for (const tag of image.tags) {
+          const key = tag.toLowerCase()
+          if (!seen.has(key)) seen.set(key, tag)
+        }
+      }
+      return Array.from(seen.values()).sort((left, right) => left.localeCompare(right, 'en'))
+    }
+
+    /**
+     * Adopt the host's commit revision when it is exactly the next one after
+     * the board this client shows: then the local change *is* the server state
+     * and no `/api/state` read is needed. Any other value means another write
+     * landed as well.
+     */
+    function adoptCommit(payload) {
+      const revision = payload !== null && typeof payload === 'object' ? payload.revision : undefined
+      if (!Number.isSafeInteger(revision) || boardRevision === null || revision !== boardRevision + 1) return false
+      boardRevision = revision
+      boardUpdatedAt = typeof payload.updatedAt === 'string' ? payload.updatedAt : null
+      return true
+    }
+
+    /**
+     * Apply one successful mutation to the shown board without re-reading it.
+     * `change` maps the current images to the new list. When the host reports
+     * another write in between, reconcile with one silent full read instead.
+     */
+    async function applyCommit(payload, change) {
+      const board = snapshot.board
+      if (board === null) {
+        await refresh()
+        return
+      }
+      // A state read already in flight predates this write: let it be discarded.
+      refreshToken += 1
+      const images = change(board.images.slice()).filter((image) => image !== null && image !== undefined)
+      const updatedAt = payload !== null && typeof payload === 'object' && typeof payload.updatedAt === 'string'
+      applyBoard({
+        version: board.version,
+        updatedAt: updatedAt ? payload.updatedAt : board.updatedAt,
+        images,
+        allTags: hostTagList(images),
+      })
+      if (snapshot.loading) setState({ loading: false })
+      if (!adoptCommit(payload)) await refresh({ silent: true })
+    }
+
+    /** Replace one image (by id) with the host's view of it. */
+    function replaceImageIn(rawImage) {
+      const next = normalizeImage(rawImage)
+      return (images) => (next === null ? images : images.map((image) => (image.id === next.id ? next : image)))
+    }
+
     function ensureLoaded() {
       if (snapshot.board === null && !snapshot.loading) void refresh()
     }
@@ -1240,6 +1440,7 @@ window.__ModuleLoader__.load({
     async function pullBoardRevision() {
       if (revisionCheckBusy) return false
       revisionCheckBusy = true
+      lastRevisionCheckAt = Date.now()
       try {
         if (snapshot.loading || snapshot.uploading || snapshot.mutating) return false
         if (snapshot.board === null) {
@@ -1287,6 +1488,8 @@ window.__ModuleLoader__.load({
       if (boardSyncStop !== null) return boardSyncStop
       const check = () => {
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+        // With the panel closed only the composer counts depend on the board.
+        if (mountedPages === 0 && Date.now() - lastRevisionCheckAt < IDLE_REVISION_POLL_MS) return
         void pullBoardRevision()
       }
       const onVisibilityChange = () => {
@@ -1531,14 +1734,16 @@ window.__ModuleLoader__.load({
           failUpload(key, msg(errorCode(error) === 'encode' ? 'encodeFailed' : 'decodeFailed', { name }))
           return false
         }
-        await requestJson(`${API_ROOT}/images`, {
+        const created = await requestJson(`${API_ROOT}/images`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ data: payload.data, mediaType: payload.mediaType, name }),
         })
         updateUpload(key, { state: 'done', message: msg('uploadDone', { name }) })
         setStatus(msg('uploadDone', { name }))
-        await refresh()
+        // Each file appears as soon as it is stored; no full board read per file.
+        const image = normalizeImage(created.image)
+        await applyCommit(created, (images) => (image === null ? images : images.concat([image])))
         return true
       } catch (error) {
         const message = msg('uploadFailed', { name, message: messageOf(error) })
@@ -1566,14 +1771,14 @@ window.__ModuleLoader__.load({
         } catch (error) {
           throw createError(msg(errorCode(error) === 'encode' ? 'encodeFailed' : 'decodeFailed', { name }), 'invalid')
         }
-        await requestJson(`${API_ROOT}/images/${encodeURIComponent(image.id)}/replace`, {
+        const replaced = await requestJson(`${API_ROOT}/images/${encodeURIComponent(image.id)}/replace`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ data: payload.data, mediaType: payload.mediaType, name }),
         })
         updateUpload(key, { state: 'done', message: msg('replaceDone', { name }) })
         setStatus(msg('replaceDone', { name }))
-        await refresh()
+        await applyCommit(replaced, replaceImageIn(replaced.image))
         return true
       } catch (error) {
         const message = msg('replaceFailed', { name, message: messageOf(error) })
@@ -1587,16 +1792,28 @@ window.__ModuleLoader__.load({
 
     async function setPinned(image, pinned) {
       setState({ mutating: true, error: '' })
+      // Optimistic: the pin flips at once; a failure restores the server state.
+      const board = snapshot.board
+      if (board !== null) {
+        refreshToken += 1
+        applyBoard({
+          version: board.version,
+          updatedAt: board.updatedAt,
+          images: board.images.map((entry) => (entry.id === image.id ? { ...entry, pinned: pinned === true } : entry)),
+          allTags: board.allTags,
+        })
+      }
       try {
-        await requestJson(`${API_ROOT}/images/${encodeURIComponent(image.id)}`, {
+        const saved = await requestJson(`${API_ROOT}/images/${encodeURIComponent(image.id)}`, {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ pinned: pinned === true }),
         })
         setStatus(msg(pinned === true ? 'pinnedOn' : 'pinnedOff', { name: image.name }))
-        await refresh()
+        await applyCommit(saved, replaceImageIn(saved.image))
         return true
       } catch (error) {
+        await refresh({ silent: true })
         setState({ error: msg('pinFailed', { message: messageOf(error) }) })
         return false
       } finally {
@@ -1613,7 +1830,7 @@ window.__ModuleLoader__.load({
           body: JSON.stringify(fields),
         })
         setStatus(msg('saved'))
-        await refresh()
+        await applyCommit(payload, replaceImageIn(payload.image))
         const saved = payload.image === null || payload.image === undefined ? null : normalizeImage(payload.image)
         return saved
       } catch (error) {
@@ -1628,12 +1845,12 @@ window.__ModuleLoader__.load({
     async function removeImage(image) {
       setState({ mutating: true, error: '' })
       try {
-        await requestJson(`${API_ROOT}/images/${encodeURIComponent(image.id)}`, { method: 'DELETE' })
+        const removed = await requestJson(`${API_ROOT}/images/${encodeURIComponent(image.id)}`, { method: 'DELETE' })
         setState({
           selectedId: snapshot.selectedId === image.id ? null : snapshot.selectedId,
           statusText: msg('removed', { name: image.name }),
         })
-        await refresh()
+        await applyCommit(removed, (images) => images.filter((entry) => entry.id !== image.id))
         return true
       } catch (error) {
         if (errorCode(error) === 'not-found') {
@@ -1656,13 +1873,17 @@ window.__ModuleLoader__.load({
       if (!Array.isArray(ids) || ids.length === 0) return false
       setState({ mutating: true, error: '' })
       try {
-        await requestJson(REORDER_PATH, {
+        const reordered = await requestJson(REORDER_PATH, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ ids }),
         })
         setStatus(msg('reorderDone'))
-        await refresh()
+        // The host stores the list position as `order`; mirror that locally.
+        const position = new Map(ids.map((id, index) => [id, index]))
+        await applyCommit(reordered, (images) =>
+          images.map((image) => (position.has(image.id) ? { ...image, order: position.get(image.id) } : image)),
+        )
         return true
       } catch (error) {
         if (errorCode(error) === 'not-found') await refresh()
@@ -1824,11 +2045,65 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** Media types the host stores as-is. */
+    const PASSTHROUGH_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+
+    /** Base64 (no data-URL prefix) of a Blob, read off the main thread. */
+    function blobToBase64(blob) {
+      return new Promise((resolve, reject) => {
+        if (typeof FileReader !== 'function') {
+          reject(createError('encode-failed', 'encode'))
+          return
+        }
+        const reader = new FileReader()
+        reader.onload = () => {
+          const result = typeof reader.result === 'string' ? reader.result : ''
+          const comma = result.indexOf(',')
+          if (comma === -1 || comma === result.length - 1) reject(createError('encode-failed', 'encode'))
+          else resolve(result.slice(comma + 1))
+        }
+        reader.onerror = () => reject(createError('encode-failed', 'encode'))
+        reader.readAsDataURL(blob)
+      })
+    }
+
+    /** `canvas.toBlob` as a promise; `null` when the type is not supported. */
+    function canvasToBlob(canvas, type, quality) {
+      return new Promise((resolve) => {
+        try {
+          canvas.toBlob((blob) => resolve(blob !== null && blob.type === type ? blob : null), type, quality)
+        } catch (error) {
+          resolve(null)
+        }
+      })
+    }
+
+    /**
+     * Prepare one file for `POST /api/images`.
+     *
+     * - A PNG/JPEG/WebP/GIF that already fits `MAX_EDGE` and
+     *   `PASSTHROUGH_MAX_BYTES` is uploaded as-is: no generational loss, crisp
+     *   text in UI screenshots, and GIF animation is kept.
+     * - Anything larger is downscaled on a canvas. PNG sources stay lossless PNG
+     *   (screenshots); other sources become WebP 0.85, else JPEG 0.85.
+     *
+     * Encoding uses `canvas.toBlob` + `FileReader`, which do not block the main
+     * thread the way `toDataURL` does.
+     */
     async function prepareUploadPayload(file) {
       const source = await decodeImageFile(file)
       try {
         const longest = Math.max(source.width, source.height)
         if (!(longest > 0)) throw createError('empty-image', 'decode')
+        const declaredType = typeof file.type === 'string' ? file.type.toLowerCase() : ''
+        const fitsAsIs =
+          PASSTHROUGH_TYPES.indexOf(declaredType) !== -1 &&
+          longest <= MAX_EDGE &&
+          typeof file.size === 'number' &&
+          file.size > 0 &&
+          file.size <= PASSTHROUGH_MAX_BYTES
+        if (fitsAsIs) return { data: await blobToBase64(file), mediaType: declaredType }
+
         const scale = Math.min(1, MAX_EDGE / longest)
         const width = Math.max(1, Math.round(source.width * scale))
         const height = Math.max(1, Math.round(source.height * scale))
@@ -1838,26 +2113,19 @@ window.__ModuleLoader__.load({
         const context = canvas.getContext('2d')
         if (context === null) throw createError('no-canvas', 'encode')
         context.drawImage(source.drawable, 0, 0, width, height)
-        let dataUrl = ''
-        let mediaType = 'image/webp'
-        try {
-          dataUrl = canvas.toDataURL('image/webp', ENCODE_QUALITY)
-        } catch (error) {
-          dataUrl = ''
+
+        const attempts =
+          declaredType === 'image/png'
+            ? [['image/png', undefined]]
+            : [
+                ['image/webp', ENCODE_QUALITY],
+                ['image/jpeg', ENCODE_QUALITY],
+              ]
+        for (const [type, quality] of attempts) {
+          const blob = await canvasToBlob(canvas, type, quality)
+          if (blob !== null && blob.size > 0) return { data: await blobToBase64(blob), mediaType: type }
         }
-        if (dataUrl.indexOf('data:image/webp') !== 0) {
-          mediaType = 'image/jpeg'
-          try {
-            dataUrl = canvas.toDataURL('image/jpeg', ENCODE_QUALITY)
-          } catch (error) {
-            throw createError('encode-failed', 'encode')
-          }
-        }
-        const expectedPrefix = mediaType === 'image/webp' ? 'data:image/webp' : 'data:image/jpeg'
-        if (dataUrl.indexOf(expectedPrefix) !== 0) throw createError('encode-failed', 'encode')
-        const comma = dataUrl.indexOf(',')
-        if (comma === -1) throw createError('encode-failed', 'encode')
-        return { data: dataUrl.slice(comma + 1), mediaType }
+        throw createError('encode-failed', 'encode')
       } finally {
         try {
           source.release()
@@ -3105,12 +3373,12 @@ window.__ModuleLoader__.load({
 
     function Thumb(props) {
       const lazy = props.lazy === true
-      const [frameRef, inView] = useInView(lazy)
+      const [frameRef, inView] = useInView(lazy, false)
       const url = useImageUrl(props.image, lazy ? inView : true)
       const inner =
         url === ''
           ? h('span', { className: 'dsh-mb-thumb-placeholder', 'aria-hidden': 'true' }, h(IconImage, { size: 18 }))
-          : h('img', { src: url, alt: props.alt, loading: 'lazy', draggable: 'false' })
+          : h('img', { src: url, alt: props.alt, loading: 'lazy', decoding: 'async', draggable: 'false' })
       if (!lazy) return inner
       return h('span', { ref: frameRef, className: 'dsh-mb-thumb-frame' }, inner)
     }
@@ -4733,6 +5001,625 @@ window.__ModuleLoader__.load({
     // Panel page
     // ---------------------------------------------------------------------------
 
+    /**
+     * One gallery card. Memoized: page-level closures arrive through the stable
+     * `actions` ref, so typing in search or an upload toast does not re-render
+     * every card — only cards whose image, selection, drag or confirm state changed.
+     */
+    const GalleryCard = memo(function GalleryCard(props) {
+      const { image, t, selected, confirming, dragging, dropEdge, canReorder, mutating, actions } = props
+      const call = (name, ...args) => actions.current[name](...args)
+      return h(
+        'li',
+        {
+          key: image.id,
+          className: 'dsh-mb-card',
+          'data-selected': selected ? 'true' : 'false',
+          'data-dragging': dragging ? 'true' : 'false',
+          'data-drop': dropEdge === null ? undefined : dropEdge,
+          draggable: canReorder,
+          onDragStart: canReorder ? (event) => call('onCardDragStart', event, image) : undefined,
+          onDragOver: canReorder ? (event) => call('onCardDragOver', event, image) : undefined,
+          onDrop: canReorder ? (event) => call('onCardDrop', event, image) : undefined,
+          onDragEnd: () => call('onCardDragEnd'),
+        },
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-mb-thumb-btn',
+            'aria-pressed': selected ? 'true' : 'false',
+            'aria-label': t('selectImage', { name: image.name }),
+            'aria-keyshortcuts': canReorder ? 'Alt+ArrowLeft Alt+ArrowRight' : undefined,
+            ref: (node) => {
+              if (node !== null && pendingCardFocusId === image.id) {
+                pendingCardFocusId = null
+                node.focus()
+              }
+            },
+            onKeyDown: (event) => {
+              if (event.altKey !== true || event.ctrlKey === true || event.metaKey === true) return
+              if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+              event.preventDefault()
+              event.stopPropagation()
+              void call('moveCardByOffset', image.id, event.key === 'ArrowLeft' ? -1 : 1)
+            },
+            onClick: (event) => {
+              // Remember the selection on the first click of a possible
+              // double-click so opening the lightbox can leave it untouched.
+              if (event.detail === 1) {
+                const current = getSnapshot()
+                actions.current.clickSelectionRef.current = {
+                  selectedId: current.selectedId,
+                  selectedIds: current.selectedIds.slice(),
+                  selectionAnchorId: current.selectionAnchorId,
+                  pendingSelectId: current.pendingSelectId,
+                }
+              }
+              call('onCardSelect', event, image)
+            },
+            onDoubleClick: (event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              const restore = actions.current.clickSelectionRef.current
+              actions.current.clickSelectionRef.current = null
+              if (restore !== null) {
+                // Previewing must not select the card or open its details.
+                setState({
+                  selectedId: restore.selectedId,
+                  selectedIds: restore.selectedIds,
+                  selectionAnchorId: restore.selectionAnchorId,
+                  pendingSelectId: restore.pendingSelectId,
+                })
+              }
+              call('openLightbox', image, event.currentTarget)
+            },
+          },
+          h(Thumb, { image, alt: image.name, lazy: true }),
+        ),
+        image.pinned
+          ? h('span', { className: 'dsh-mb-pin-badge' }, h(IconPin, { size: 10 }), t('pinnedBadge'))
+          : null,
+        h(
+          'div',
+          { className: 'dsh-mb-card-actions', 'aria-hidden': 'true' },
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-mb-btn dsh-mb-btn--icon',
+              tabIndex: -1,
+              title: t('lightboxOpenLabel', { name: image.name }),
+              'aria-label': t('lightboxOpenLabel', { name: image.name }),
+              'aria-haspopup': 'dialog',
+              onClick: (event) => {
+                // Expanding previews the image without changing the selection.
+                event.stopPropagation()
+                call('openLightbox', image, event.currentTarget)
+              },
+            },
+            h(IconExpand, { size: 13 }),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-mb-btn dsh-mb-btn--icon',
+              tabIndex: -1,
+              title: t(image.pinned ? 'unpinName' : 'pinName', { name: image.name }),
+              'aria-label': t(image.pinned ? 'unpinName' : 'pinName', { name: image.name }),
+              disabled: mutating,
+              onClick: () => {
+                void setPinned(image, !image.pinned)
+              },
+            },
+            image.pinned ? h(IconPinOff, { size: 13 }) : h(IconPin, { size: 13 }),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-mb-btn dsh-mb-btn--icon',
+              tabIndex: -1,
+              title: t('replaceLabel', { name: image.name }),
+              'aria-label': t('replaceLabel', { name: image.name }),
+              disabled: mutating,
+              onClick: () => call('requestReplace', image),
+            },
+            h(IconSwap, { size: 13 }),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-mb-btn dsh-mb-btn--icon dsh-mb-btn--danger',
+              tabIndex: -1,
+              title: t('removeName', { name: image.name }),
+              'aria-label': t('removeName', { name: image.name }),
+              disabled: mutating,
+              onClick: () => call('setConfirmRemoveId', image.id),
+            },
+            h(IconTrash, { size: 13 }),
+          ),
+        ),
+        h(
+          'div',
+          { className: 'dsh-mb-card-meta' },
+          h(
+            'div',
+            { className: 'dsh-mb-card-name-row' },
+            selected
+              ? h('span', { className: 'dsh-mb-card-check', 'aria-hidden': 'true' }, h(IconCheck, { size: 10 }))
+              : null,
+            h('span', { className: 'dsh-mb-card-name', title: image.name }, image.name),
+          ),
+          h(
+            'div',
+            { className: 'dsh-mb-tags' },
+            image.tags.slice(0, 2).map((tag) => h('span', { key: tag, className: 'dsh-mb-tag' }, tag)),
+            image.tags.length > 2 ? h('span', { className: 'dsh-mb-tag' }, `+${image.tags.length - 2}`) : null,
+          ),
+        ),
+        confirming
+          ? h(
+              'div',
+              { className: 'dsh-mb-confirm', role: 'group', 'aria-label': t('confirmRemoveQuestion') },
+              h('span', { className: 'dsh-mb-hint' }, t('confirmRemoveQuestion')),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-mb-btn dsh-mb-btn--danger',
+                  autoFocus: true,
+                  disabled: mutating,
+                  onClick: () => {
+                    void call('onRemove', image)
+                  },
+                },
+                t('confirm'),
+              ),
+              h(
+                'button',
+                { type: 'button', className: 'dsh-mb-btn', onClick: () => call('setConfirmRemoveId', null) },
+                t('cancel'),
+              ),
+            )
+          : null,
+      )
+      })
+
+    /**
+     * Full-size preview dialog. Owns its focus (close button on open, Tab trap),
+     * Esc / arrow keys and its image URL; the page passes the open image, the
+     * list to step through, and callbacks.
+     */
+    function Lightbox(props) {
+      const { image, list, t, mutating, onClose, onNavigate, onEditDetails } = props
+      const dialogRef = useRef(null)
+      const closeRef = useRef(null)
+      const url = useImageUrl(image)
+
+      useEffect(() => {
+        const closeButton = closeRef.current
+        if (closeButton !== null) closeButton.focus()
+      }, [])
+
+      // Esc must also close the preview when focus escaped the dialog (for
+      // example after a disabled control moved it to <body>); the overlay
+      // handler covers the focused-inside case. The latest close callback sits
+      // in a ref, so the listener is installed once per opening.
+      const onCloseRef = useRef(onClose)
+      onCloseRef.current = onClose
+      useEffect(() => {
+        const onDocumentKeyDown = (event) => {
+          if (event === null || event === undefined || event.key !== 'Escape') return
+          if (event.defaultPrevented) return
+          event.preventDefault()
+          onCloseRef.current()
+        }
+        document.addEventListener('keydown', onDocumentKeyDown)
+        return () => document.removeEventListener('keydown', onDocumentKeyDown)
+      }, [])
+
+      // Prev/next walk the current tag + search filtered order and wrap.
+      const stepLightbox = (delta) => {
+        if (list.length < 2) return
+        const index = list.findIndex((entry) => entry.id === image.id)
+        if (index === -1) return
+        const nextIndex = (index + delta + list.length) % list.length
+        onNavigate(list[nextIndex].id)
+      }
+
+      const onLightboxKeyDown = (event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          onClose()
+          return
+        }
+        if (event.key === 'ArrowLeft') {
+          event.preventDefault()
+          event.stopPropagation()
+          stepLightbox(-1)
+          return
+        }
+        if (event.key === 'ArrowRight') {
+          event.preventDefault()
+          event.stopPropagation()
+          stepLightbox(1)
+          return
+        }
+        if (event.key !== 'Tab') return
+        const dialog = dialogRef.current
+        if (dialog === null) return
+        const focusable = []
+        dialog.querySelectorAll(LIGHTBOX_FOCUSABLE).forEach((node) => {
+          if (node.getClientRects().length > 0) focusable.push(node)
+        })
+        if (focusable.length === 0) {
+          event.preventDefault()
+          return
+        }
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        const active = document.activeElement
+        if (event.shiftKey) {
+          if (active === first || !dialog.contains(active)) {
+            event.preventDefault()
+            last.focus()
+          }
+          return
+        }
+        if (active === last || !dialog.contains(active)) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
+
+      const headingId = 'dsh-mb-lightbox-title'
+      const multi = list.length > 1
+      const position = list.findIndex((entry) => entry.id === image.id)
+      return h(
+        'div',
+        {
+          className: 'dsh-mb-lightbox',
+          onClick: (event) => {
+            if (event.target === event.currentTarget) onClose()
+          },
+          onKeyDown: onLightboxKeyDown,
+        },
+        h(
+          'div',
+          {
+            ref: dialogRef,
+            className: 'dsh-mb-lightbox-dialog',
+            role: 'dialog',
+            'aria-modal': 'true',
+            'aria-labelledby': headingId,
+          },
+          h(
+            'div',
+            { className: 'dsh-mb-lightbox-head' },
+            h(
+              'h2',
+              { id: headingId, className: 'dsh-mb-lightbox-title' },
+              h('span', { className: 'dsh-mb-visually-hidden' }, `${t('lightboxTitle')} `),
+              image.name,
+              multi ? h('span', { className: 'dsh-mb-lightbox-counter' }, `${position + 1} / ${list.length}`) : null,
+            ),
+            h(
+              'div',
+              { className: 'dsh-mb-lightbox-actions' },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-mb-btn dsh-mb-btn--small',
+                  disabled: mutating,
+                  title: t('editDetails'),
+                  onClick: () => {
+                    onEditDetails(image.id)
+                  },
+                },
+                h(IconPencil, { size: 12 }),
+                h('span', { className: 'dsh-mb-btn-text' }, t('editDetails')),
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-mb-btn dsh-mb-btn--small',
+                  disabled: mutating,
+                  title: t(image.pinned ? 'unpinName' : 'pinName', { name: image.name }),
+                  'aria-label': t(image.pinned ? 'unpinName' : 'pinName', { name: image.name }),
+                  'aria-pressed': image.pinned ? 'true' : 'false',
+                  onClick: () => {
+                    void setPinned(image, !image.pinned)
+                  },
+                },
+                image.pinned ? h(IconPinOff, { size: 12 }) : h(IconPin, { size: 12 }),
+                h('span', { className: 'dsh-mb-btn-text' }, image.pinned ? t('unpin') : t('pin')),
+              ),
+            ),
+            h(
+              'button',
+              {
+                ref: closeRef,
+                type: 'button',
+                className: 'dsh-mb-btn dsh-mb-btn--icon',
+                'aria-label': t('lightboxClose'),
+                title: t('lightboxClose'),
+                onClick: onClose,
+              },
+              h(IconClose, { size: 13 }),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'dsh-mb-lightbox-figure' },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-mb-btn dsh-mb-btn--icon dsh-mb-lightbox-nav dsh-mb-lightbox-prev',
+                'aria-label': t('lightboxPrev'),
+                title: t('lightboxPrev'),
+                disabled: !multi,
+                onClick: () => stepLightbox(-1),
+              },
+              h(IconChevron, { size: 16, direction: 'left' }),
+            ),
+            url === ''
+              ? h(
+                  'span',
+                  { className: 'dsh-mb-thumb-placeholder', 'aria-hidden': 'true' },
+                  h(IconImage, { size: 18 }),
+                )
+              : h('img', {
+                  className: 'dsh-mb-lightbox-image',
+                  src: url,
+                  alt: t('previewAlt', { name: image.name }),
+                  draggable: 'false',
+                }),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-mb-btn dsh-mb-btn--icon dsh-mb-lightbox-nav dsh-mb-lightbox-next',
+                'aria-label': t('lightboxNext'),
+                title: t('lightboxNext'),
+                disabled: !multi,
+                onClick: () => stepLightbox(1),
+              },
+              h(IconChevron, { size: 16, direction: 'right' }),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'dsh-mb-lightbox-body' },
+            image.tags.length === 0
+              ? null
+              : h(
+                  'div',
+                  { className: 'dsh-mb-lightbox-field' },
+                  h('span', { className: 'dsh-mb-label' }, t('lightboxTags')),
+                  h(
+                    'div',
+                    { className: 'dsh-mb-tags' },
+                    image.tags.map((tag) => h('span', { key: tag, className: 'dsh-mb-tag' }, tag)),
+                  ),
+                ),
+            image.notes.trim() === ''
+              ? null
+              : h(
+                  'div',
+                  { className: 'dsh-mb-lightbox-field' },
+                  h('span', { className: 'dsh-mb-label' }, t('lightboxNotes')),
+                  h('p', { className: 'dsh-mb-lightbox-notes' }, image.notes),
+                ),
+            image.sourceUrl === ''
+              ? null
+              : h(
+                  'div',
+                  { className: 'dsh-mb-lightbox-field' },
+                  h('span', { className: 'dsh-mb-label' }, t('lightboxSource')),
+                  h(
+                    'a',
+                    {
+                      className: 'dsh-mb-link',
+                      href: image.sourceUrl,
+                      target: '_blank',
+                      rel: 'noreferrer noopener',
+                    },
+                    image.sourceUrl,
+                  ),
+                ),
+          ),
+          h('p', { className: 'dsh-mb-lightbox-hint' }, t('lightboxHint')),
+        ),
+      )
+    }
+
+    /**
+     * Floating toolbar for a multi-selection (2+ images): pin, unpin, add a
+     * tag, delete with confirmation, invert, clear. Owns its tag input, tag
+     * error and delete confirmation, so they reset whenever the bar unmounts
+     * (the selection drops below two). `visibleIds` is the filtered gallery
+     * order that "invert" works over.
+     */
+    function BulkBar(props) {
+      const { count, mutating, visibleIds, t } = props
+      const [bulkTag, setBulkTag] = useState('')
+      const [bulkTagError, setBulkTagError] = useState('')
+      const [bulkConfirmRemove, setBulkConfirmRemove] = useState(false)
+
+      const runBulk = async (patch) => {
+        const current = getSnapshot()
+        if (current.mutating || current.selectedIds.length === 0) return
+        const ok = await bulkUpdate(patch)
+        if (!ok) return
+        setBulkTag('')
+        setBulkTagError('')
+        setBulkConfirmRemove(false)
+      }
+
+      const onAddBulkTag = () => {
+        const raw = bulkTag.trim()
+        if (raw === '') {
+          setBulkTagError(t('tagEmpty'))
+          return
+        }
+        if (raw.length > MAX_TAG_LENGTH) {
+          setBulkTagError(t('tagTooLong'))
+          return
+        }
+        setBulkTagError('')
+        void runBulk({ addTags: [raw] })
+      }
+
+      const onClearSelection = () => {
+        setBulkConfirmRemove(false)
+        setBulkTag('')
+        setBulkTagError('')
+        clearSelection()
+      }
+
+      return h(
+        'div',
+        { className: 'dsh-mb-bulk', role: 'toolbar', 'aria-label': t('selectionToolbar') },
+        h('span', { className: 'dsh-mb-bulk-count', role: 'status' }, t('selectionCount', { count })),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-mb-bulk-btn',
+            disabled: mutating,
+            'aria-label': t('bulkPinLabel'),
+            title: t('bulkPinLabel'),
+            onClick: () => {
+              void runBulk({ pinned: true })
+            },
+          },
+          h(IconPin, { size: 14 }),
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-mb-bulk-btn',
+            disabled: mutating,
+            'aria-label': t('bulkUnpinLabel'),
+            title: t('bulkUnpinLabel'),
+            onClick: () => {
+              void runBulk({ pinned: false })
+            },
+          },
+          h(IconPinOff, { size: 14 }),
+        ),
+        h(
+          'div',
+          { className: 'dsh-mb-bulk-tag' },
+          h('input', {
+            className: 'dsh-mb-input',
+            type: 'text',
+            value: bulkTag,
+            maxLength: MAX_TAG_LENGTH,
+            list: TAG_SUGGESTIONS_ID,
+            placeholder: t('bulkTagPlaceholder'),
+            'aria-label': t('bulkAddTagLabel'),
+            'aria-describedby': bulkTagError === '' ? undefined : 'dsh-mb-bulk-tag-error',
+            'aria-invalid': bulkTagError === '' ? undefined : 'true',
+            onChange: (event) => {
+              setBulkTag(event.currentTarget.value)
+              setBulkTagError('')
+            },
+            onKeyDown: (event) => {
+              if (event.key !== 'Enter') return
+              event.preventDefault()
+              onAddBulkTag()
+            },
+          }),
+          h(
+            'button',
+            { type: 'button', className: 'dsh-mb-btn dsh-mb-btn--small', disabled: mutating, onClick: onAddBulkTag },
+            h(IconPlus, { size: 11 }),
+            t('addTag'),
+          ),
+        ),
+        bulkConfirmRemove
+          ? h(
+              React.Fragment,
+              null,
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-mb-btn dsh-mb-btn--small dsh-mb-btn--danger',
+                  autoFocus: true,
+                  disabled: mutating,
+                  onClick: () => {
+                    void runBulk({ delete: true })
+                  },
+                },
+                t('confirm'),
+              ),
+              h(
+                'button',
+                { type: 'button', className: 'dsh-mb-btn dsh-mb-btn--small', onClick: () => setBulkConfirmRemove(false) },
+                t('cancel'),
+              ),
+            )
+          : h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-mb-bulk-btn dsh-mb-bulk-btn--danger',
+                disabled: mutating,
+                'aria-label': t('bulkRemoveLabel'),
+                title: t('bulkRemoveLabel'),
+                onClick: () => setBulkConfirmRemove(true),
+              },
+              h(IconTrash, { size: 14 }),
+            ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-mb-bulk-btn',
+            disabled: mutating,
+            'aria-label': t('bulkInvertLabel'),
+            title: t('bulkInvertLabel'),
+            onClick: () => {
+              setStatus(msg('selectionInverted', { count: invertSelectedImages(visibleIds) }))
+            },
+          },
+          h(IconSwap, { size: 14 }),
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-mb-bulk-btn',
+            'aria-label': t('clearSelection'),
+            title: t('clearSelection'),
+            onClick: onClearSelection,
+          },
+          h(IconClose, { size: 13 }),
+        ),
+        bulkConfirmRemove
+          ? h(
+              'p',
+              { className: 'dsh-mb-bulk-error', role: 'alert' },
+              t('bulkConfirmQuestion', { count }),
+            )
+          : null,
+        bulkTagError !== ''
+          ? h('p', { className: 'dsh-mb-bulk-error', id: 'dsh-mb-bulk-tag-error', role: 'alert' }, bulkTagError)
+          : null,
+        h('p', { className: 'dsh-mb-bulk-hint' }, t('selectionHint')),
+      )
+    }
+
     function MoodboardPage(props) {
       const t = getTranslator(props)
       const state = useSyncExternalStore(subscribe, getSnapshot)
@@ -4743,9 +5630,6 @@ window.__ModuleLoader__.load({
       const [confirmRemoveId, setConfirmRemoveId] = useState(null)
       const [reorderDragId, setReorderDragId] = useState(null)
       const [reorderOver, setReorderOver] = useState(null)
-      const [bulkTag, setBulkTag] = useState('')
-      const [bulkTagError, setBulkTagError] = useState('')
-      const [bulkConfirmRemove, setBulkConfirmRemove] = useState(false)
       const [lightboxId, setLightboxId] = useState(null)
       const [mergeOpen, setMergeOpen] = useState(false)
       const [helpOpen, setHelpOpen] = useState(false)
@@ -4756,8 +5640,6 @@ window.__ModuleLoader__.load({
       const replaceTargetRef = useRef(null)
       const discardRef = useRef(null)
       const searchInputRef = useRef(null)
-      const lightboxDialogRef = useRef(null)
-      const lightboxCloseRef = useRef(null)
       const lightboxOpenerRef = useRef(null)
       const lightboxIdRef = useRef(null)
       const mergeOpenRef = useRef(false)
@@ -4769,6 +5651,7 @@ window.__ModuleLoader__.load({
       const importOpenerRef = useRef(null)
       const importOpenRef = useRef(false)
       const visibleIdsRef = useRef([])
+      const cardActionsRef = useRef(null)
       mergeOpenRef.current = mergeOpen
       helpOpenRef.current = helpOpen
       importOpenRef.current = importOpen
@@ -4779,6 +5662,8 @@ window.__ModuleLoader__.load({
         // Opening the panel is a good moment to pick up writes made while it was
         // closed (for example references the agent just added).
         void pullBoardRevision()
+        // While mounted, the revision poll runs at its full cadence.
+        return trackPageMount()
       }, [])
 
       // A new filter, search term or image count starts the gallery at one page.
@@ -4879,12 +5764,6 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
-      useEffect(() => {
-        if (state.selectedIds.length > 0) return
-        setBulkConfirmRemove(false)
-        setBulkTagError('')
-      }, [state.selectedIds.length])
-
       // Upload confirmations are transient: successful rows disappear after a
       // beat, while failures stay put until the user dismisses them.
       useEffect(() => {
@@ -4907,23 +5786,26 @@ window.__ModuleLoader__.load({
       const board = state.board
       const images = board === null ? [] : board.images
       // One shared suggestion list feeds both tag inputs; free text stays valid.
-      const tagSuggestions =
-        board === null ? [] : board.allTags.slice().sort((left, right) => left.localeCompare(right))
-      const pinnedImages = images.filter((image) => image.pinned)
+      const tagSuggestions = useMemo(
+        () => (board === null ? [] : board.allTags.slice().sort((left, right) => left.localeCompare(right))),
+        [board],
+      )
+      const pinnedImages = useMemo(() => images.filter((image) => image.pinned), [images])
       const selectedImage =
         state.selectedId === null ? null : images.find((image) => image.id === state.selectedId) || null
       // Search is trimmed and lower-cased only for matching; the raw text stays
       // in the store so multi-word queries can be typed.
       const searchNeedle = state.searchQuery.trim().toLowerCase()
-      const filtered = images.filter((image) => {
-        if (state.tagFilter !== '' && !image.tags.some((tag) => tag.toLowerCase() === state.tagFilter.toLowerCase())) {
-          return false
-        }
-        return matchesSearch(image, searchNeedle)
-      })
-      visibleIdsRef.current = filtered.map((image) => image.id)
+      const filtered = useMemo(() => {
+        const tagNeedle = state.tagFilter.toLowerCase()
+        return images.filter((image) => {
+          if (tagNeedle !== '' && !image.tags.some((tag) => tag.toLowerCase() === tagNeedle)) return false
+          return matchesSearch(image, searchNeedle)
+        })
+      }, [images, state.tagFilter, searchNeedle])
+      visibleIdsRef.current = useMemo(() => filtered.map((image) => image.id), [filtered])
+      const selectedIdSet = useMemo(() => new Set(state.selectedIds), [state.selectedIds])
       const lightboxImage = lightboxId === null ? null : images.find((image) => image.id === lightboxId) || null
-      const lightboxUrl = useImageUrl(lightboxImage)
       // Navigate the visible order; an image hidden by a changed filter still
       // falls back to the full gallery rather than trapping the lightbox.
       const lightboxList =
@@ -4974,34 +5856,16 @@ window.__ModuleLoader__.load({
 
       // The lightbox is page-local and tracks only an id, so opening it keeps
       // the multi-selection and the details target untouched.
+      // The Lightbox focuses its own close button when it opens; the page only
+      // returns focus to the opener when it closes.
       useEffect(() => {
         const wasOpen = lightboxIdRef.current !== null
         lightboxIdRef.current = lightboxId
-        if (lightboxId !== null) {
-          if (wasOpen) return
-          const closeButton = lightboxCloseRef.current
-          if (closeButton !== null) closeButton.focus()
-          return
-        }
+        if (lightboxId !== null) return
         if (!wasOpen) return
         const opener = lightboxOpenerRef.current
         lightboxOpenerRef.current = null
         if (opener !== null && opener.isConnected === true) opener.focus()
-      }, [lightboxId])
-
-      // Esc must also close the preview when focus escaped the dialog (for
-      // example after a disabled control moved it to <body>); the overlay
-      // handler covers the focused-inside case.
-      useEffect(() => {
-        if (lightboxId === null) return undefined
-        const onDocumentKeyDown = (event) => {
-          if (event === null || event === undefined || event.key !== 'Escape') return
-          if (event.defaultPrevented) return
-          event.preventDefault()
-          setLightboxId(null)
-        }
-        document.addEventListener('keydown', onDocumentKeyDown)
-        return () => document.removeEventListener('keydown', onDocumentKeyDown)
       }, [lightboxId])
 
       // A refresh, a removal or a bulk delete can make the open image vanish.
@@ -5028,60 +5892,6 @@ window.__ModuleLoader__.load({
         setMergeOpen(false)
       }
 
-      // Prev/next walk the current tag + search filtered order and wrap.
-      const stepLightbox = (delta) => {
-        if (lightboxImage === null || lightboxList.length < 2) return
-        const index = lightboxList.findIndex((entry) => entry.id === lightboxImage.id)
-        if (index === -1) return
-        const nextIndex = (index + delta + lightboxList.length) % lightboxList.length
-        setLightboxId(lightboxList[nextIndex].id)
-      }
-
-      const onLightboxKeyDown = (event) => {
-        if (event.key === 'Escape') {
-          event.preventDefault()
-          event.stopPropagation()
-          closeLightbox()
-          return
-        }
-        if (event.key === 'ArrowLeft') {
-          event.preventDefault()
-          event.stopPropagation()
-          stepLightbox(-1)
-          return
-        }
-        if (event.key === 'ArrowRight') {
-          event.preventDefault()
-          event.stopPropagation()
-          stepLightbox(1)
-          return
-        }
-        if (event.key !== 'Tab') return
-        const dialog = lightboxDialogRef.current
-        if (dialog === null) return
-        const focusable = []
-        dialog.querySelectorAll(LIGHTBOX_FOCUSABLE).forEach((node) => {
-          if (node.getClientRects().length > 0) focusable.push(node)
-        })
-        if (focusable.length === 0) {
-          event.preventDefault()
-          return
-        }
-        const first = focusable[0]
-        const last = focusable[focusable.length - 1]
-        const active = document.activeElement
-        if (event.shiftKey) {
-          if (active === first || !dialog.contains(active)) {
-            event.preventDefault()
-            last.focus()
-          }
-          return
-        }
-        if (active === last || !dialog.contains(active)) {
-          event.preventDefault()
-          first.focus()
-        }
-      }
 
       /** Read the dragged image id from the internal drag payload. */
       const readDraggedId = (event, fallback) => {
@@ -5302,36 +6112,6 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const runBulk = async (patch) => {
-        if (state.mutating || state.selectedIds.length === 0) return
-        const ok = await bulkUpdate(patch)
-        if (!ok) return
-        setBulkTag('')
-        setBulkTagError('')
-        setBulkConfirmRemove(false)
-      }
-
-      const onAddBulkTag = () => {
-        const raw = bulkTag.trim()
-        if (raw === '') {
-          setBulkTagError(t('tagEmpty'))
-          return
-        }
-        if (raw.length > MAX_TAG_LENGTH) {
-          setBulkTagError(t('tagTooLong'))
-          return
-        }
-        setBulkTagError('')
-        void runBulk({ addTags: [raw] })
-      }
-
-      const onClearSelection = () => {
-        setBulkConfirmRemove(false)
-        setBulkTag('')
-        setBulkTagError('')
-        clearSelection()
-      }
-
       const onCardSelect = (event, image) => {
         if (event.metaKey || event.ctrlKey) {
           toggleSelectedImage(image.id)
@@ -5345,145 +6125,6 @@ window.__ModuleLoader__.load({
           return
         }
         selectSingleImage(image.id)
-      }
-
-      const renderBulkToolbar = () => {
-        const count = state.selectedIds.length
-        if (count < 2) return null
-        return h(
-          'div',
-          { className: 'dsh-mb-bulk', role: 'toolbar', 'aria-label': t('selectionToolbar') },
-          h('span', { className: 'dsh-mb-bulk-count', role: 'status' }, t('selectionCount', { count })),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dsh-mb-bulk-btn',
-              disabled: state.mutating,
-              'aria-label': t('bulkPinLabel'),
-              title: t('bulkPinLabel'),
-              onClick: () => {
-                void runBulk({ pinned: true })
-              },
-            },
-            h(IconPin, { size: 14 }),
-          ),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dsh-mb-bulk-btn',
-              disabled: state.mutating,
-              'aria-label': t('bulkUnpinLabel'),
-              title: t('bulkUnpinLabel'),
-              onClick: () => {
-                void runBulk({ pinned: false })
-              },
-            },
-            h(IconPinOff, { size: 14 }),
-          ),
-          h(
-            'div',
-            { className: 'dsh-mb-bulk-tag' },
-            h('input', {
-              className: 'dsh-mb-input',
-              type: 'text',
-              value: bulkTag,
-              maxLength: MAX_TAG_LENGTH,
-              list: TAG_SUGGESTIONS_ID,
-              placeholder: t('bulkTagPlaceholder'),
-              'aria-label': t('bulkAddTagLabel'),
-              'aria-describedby': bulkTagError === '' ? undefined : 'dsh-mb-bulk-tag-error',
-              'aria-invalid': bulkTagError === '' ? undefined : 'true',
-              onChange: (event) => {
-                setBulkTag(event.currentTarget.value)
-                setBulkTagError('')
-              },
-              onKeyDown: (event) => {
-                if (event.key !== 'Enter') return
-                event.preventDefault()
-                onAddBulkTag()
-              },
-            }),
-            h(
-              'button',
-              { type: 'button', className: 'dsh-mb-btn dsh-mb-btn--small', disabled: state.mutating, onClick: onAddBulkTag },
-              h(IconPlus, { size: 11 }),
-              t('addTag'),
-            ),
-          ),
-          bulkConfirmRemove
-            ? h(
-                React.Fragment,
-                null,
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'dsh-mb-btn dsh-mb-btn--small dsh-mb-btn--danger',
-                    autoFocus: true,
-                    disabled: state.mutating,
-                    onClick: () => {
-                      void runBulk({ delete: true })
-                    },
-                  },
-                  t('confirm'),
-                ),
-                h(
-                  'button',
-                  { type: 'button', className: 'dsh-mb-btn dsh-mb-btn--small', onClick: () => setBulkConfirmRemove(false) },
-                  t('cancel'),
-                ),
-              )
-            : h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'dsh-mb-bulk-btn dsh-mb-bulk-btn--danger',
-                  disabled: state.mutating,
-                  'aria-label': t('bulkRemoveLabel'),
-                  title: t('bulkRemoveLabel'),
-                  onClick: () => setBulkConfirmRemove(true),
-                },
-                h(IconTrash, { size: 14 }),
-              ),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dsh-mb-bulk-btn',
-              disabled: state.mutating,
-              'aria-label': t('bulkInvertLabel'),
-              title: t('bulkInvertLabel'),
-              onClick: () => {
-                setStatus(msg('selectionInverted', { count: invertSelectedImages(filtered.map((image) => image.id)) }))
-              },
-            },
-            h(IconSwap, { size: 14 }),
-          ),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dsh-mb-bulk-btn',
-              'aria-label': t('clearSelection'),
-              title: t('clearSelection'),
-              onClick: onClearSelection,
-            },
-            h(IconClose, { size: 13 }),
-          ),
-          bulkConfirmRemove
-            ? h(
-                'p',
-                { className: 'dsh-mb-bulk-error', role: 'alert' },
-                t('bulkConfirmQuestion', { count }),
-              )
-            : null,
-          bulkTagError !== ''
-            ? h('p', { className: 'dsh-mb-bulk-error', id: 'dsh-mb-bulk-tag-error', role: 'alert' }, bulkTagError)
-            : null,
-          h('p', { className: 'dsh-mb-bulk-hint' }, t('selectionHint')),
-        )
       }
 
       /** Move one card by keyboard and keep focus on it after the refresh. */
@@ -5502,190 +6143,36 @@ window.__ModuleLoader__.load({
         await reorderImages(ids)
       }
 
-      const renderCard = (image) => {
-        const selected = state.selectedIds.indexOf(image.id) !== -1
-        const confirming = confirmRemoveId === image.id
-        const dragging = reorderDragId === image.id
-        const dropEdge =
-          reorderOver !== null && reorderOver.id === image.id ? (reorderOver.after ? 'after' : 'before') : null
-        return h(
-          'li',
-          {
-            key: image.id,
-            className: 'dsh-mb-card',
-            'data-selected': selected ? 'true' : 'false',
-            'data-dragging': dragging ? 'true' : 'false',
-            'data-drop': dropEdge === null ? undefined : dropEdge,
-            draggable: canReorder,
-            onDragStart: canReorder ? (event) => onCardDragStart(event, image) : undefined,
-            onDragOver: canReorder ? (event) => onCardDragOver(event, image) : undefined,
-            onDrop: canReorder ? (event) => onCardDrop(event, image) : undefined,
-            onDragEnd: onCardDragEnd,
-          },
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dsh-mb-thumb-btn',
-              'aria-pressed': selected ? 'true' : 'false',
-              'aria-label': t('selectImage', { name: image.name }),
-              'aria-keyshortcuts': canReorder ? 'Alt+ArrowLeft Alt+ArrowRight' : undefined,
-              ref: (node) => {
-                if (node !== null && pendingCardFocusId === image.id) {
-                  pendingCardFocusId = null
-                  node.focus()
-                }
-              },
-              onKeyDown: (event) => {
-                if (event.altKey !== true || event.ctrlKey === true || event.metaKey === true) return
-                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
-                event.preventDefault()
-                event.stopPropagation()
-                void moveCardByOffset(image.id, event.key === 'ArrowLeft' ? -1 : 1)
-              },
-              onClick: (event) => {
-                // Remember the selection on the first click of a possible
-                // double-click so opening the lightbox can leave it untouched.
-                if (event.detail === 1) {
-                  const current = getSnapshot()
-                  clickSelectionRef.current = {
-                    selectedId: current.selectedId,
-                    selectedIds: current.selectedIds.slice(),
-                    selectionAnchorId: current.selectionAnchorId,
-                    pendingSelectId: current.pendingSelectId,
-                  }
-                }
-                onCardSelect(event, image)
-              },
-              onDoubleClick: (event) => {
-                event.preventDefault()
-                event.stopPropagation()
-                const restore = clickSelectionRef.current
-                clickSelectionRef.current = null
-                if (restore !== null) {
-                  // Previewing must not select the card or open its details.
-                  setState({
-                    selectedId: restore.selectedId,
-                    selectedIds: restore.selectedIds,
-                    selectionAnchorId: restore.selectionAnchorId,
-                    pendingSelectId: restore.pendingSelectId,
-                  })
-                }
-                openLightbox(image, event.currentTarget)
-              },
-            },
-            h(Thumb, { image, alt: image.name, lazy: true }),
-          ),
-          image.pinned
-            ? h('span', { className: 'dsh-mb-pin-badge' }, h(IconPin, { size: 10 }), t('pinnedBadge'))
-            : null,
-          h(
-            'div',
-            { className: 'dsh-mb-card-actions', 'aria-hidden': 'true' },
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'dsh-mb-btn dsh-mb-btn--icon',
-                tabIndex: -1,
-                title: t('lightboxOpenLabel', { name: image.name }),
-                'aria-label': t('lightboxOpenLabel', { name: image.name }),
-                'aria-haspopup': 'dialog',
-                onClick: (event) => {
-                  // Expanding previews the image without changing the selection.
-                  event.stopPropagation()
-                  openLightbox(image, event.currentTarget)
-                },
-              },
-              h(IconExpand, { size: 13 }),
-            ),
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'dsh-mb-btn dsh-mb-btn--icon',
-                tabIndex: -1,
-                title: t(image.pinned ? 'unpinName' : 'pinName', { name: image.name }),
-                'aria-label': t(image.pinned ? 'unpinName' : 'pinName', { name: image.name }),
-                disabled: state.mutating,
-                onClick: () => {
-                  void setPinned(image, !image.pinned)
-                },
-              },
-              image.pinned ? h(IconPinOff, { size: 13 }) : h(IconPin, { size: 13 }),
-            ),
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'dsh-mb-btn dsh-mb-btn--icon',
-                tabIndex: -1,
-                title: t('replaceLabel', { name: image.name }),
-                'aria-label': t('replaceLabel', { name: image.name }),
-                disabled: state.mutating,
-                onClick: () => requestReplace(image),
-              },
-              h(IconSwap, { size: 13 }),
-            ),
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'dsh-mb-btn dsh-mb-btn--icon dsh-mb-btn--danger',
-                tabIndex: -1,
-                title: t('removeName', { name: image.name }),
-                'aria-label': t('removeName', { name: image.name }),
-                disabled: state.mutating,
-                onClick: () => setConfirmRemoveId(image.id),
-              },
-              h(IconTrash, { size: 13 }),
-            ),
-          ),
-          h(
-            'div',
-            { className: 'dsh-mb-card-meta' },
-            h(
-              'div',
-              { className: 'dsh-mb-card-name-row' },
-              selected
-                ? h('span', { className: 'dsh-mb-card-check', 'aria-hidden': 'true' }, h(IconCheck, { size: 10 }))
-                : null,
-              h('span', { className: 'dsh-mb-card-name', title: image.name }, image.name),
-            ),
-            h(
-              'div',
-              { className: 'dsh-mb-tags' },
-              image.tags.slice(0, 2).map((tag) => h('span', { key: tag, className: 'dsh-mb-tag' }, tag)),
-              image.tags.length > 2 ? h('span', { className: 'dsh-mb-tag' }, `+${image.tags.length - 2}`) : null,
-            ),
-          ),
-          confirming
-            ? h(
-                'div',
-                { className: 'dsh-mb-confirm', role: 'group', 'aria-label': t('confirmRemoveQuestion') },
-                h('span', { className: 'dsh-mb-hint' }, t('confirmRemoveQuestion')),
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'dsh-mb-btn dsh-mb-btn--danger',
-                    autoFocus: true,
-                    disabled: state.mutating,
-                    onClick: () => {
-                      void onRemove(image)
-                    },
-                  },
-                  t('confirm'),
-                ),
-                h(
-                  'button',
-                  { type: 'button', className: 'dsh-mb-btn', onClick: () => setConfirmRemoveId(null) },
-                  t('cancel'),
-                ),
-              )
-            : null,
-        )
+      // Latest page closures for the memoized cards: the ref object is stable, so
+      // a card re-renders only when its own props change.
+      cardActionsRef.current = {
+        onCardDragStart,
+        onCardDragOver,
+        onCardDrop,
+        onCardDragEnd,
+        moveCardByOffset,
+        onCardSelect,
+        openLightbox,
+        requestReplace,
+        setConfirmRemoveId,
+        onRemove,
+        clickSelectionRef,
       }
+
+      const renderCard = (image) =>
+        h(GalleryCard, {
+          key: image.id,
+          image,
+          t,
+          selected: selectedIdSet.has(image.id),
+          confirming: confirmRemoveId === image.id,
+          dragging: reorderDragId === image.id,
+          dropEdge:
+            reorderOver !== null && reorderOver.id === image.id ? (reorderOver.after ? 'after' : 'before') : null,
+          canReorder,
+          mutating: state.mutating,
+          actions: cardActionsRef,
+        })
 
       const renderActiveStrip = () =>
         h(
@@ -5927,173 +6414,6 @@ window.__ModuleLoader__.load({
                 }),
               ),
         )
-
-      const renderLightbox = () => {
-        if (lightboxImage === null) return null
-        const headingId = 'dsh-mb-lightbox-title'
-        const multi = lightboxList.length > 1
-        const position = lightboxList.findIndex((entry) => entry.id === lightboxImage.id)
-        return h(
-          'div',
-          {
-            className: 'dsh-mb-lightbox',
-            onClick: (event) => {
-              if (event.target === event.currentTarget) closeLightbox()
-            },
-            onKeyDown: onLightboxKeyDown,
-          },
-          h(
-            'div',
-            {
-              ref: lightboxDialogRef,
-              className: 'dsh-mb-lightbox-dialog',
-              role: 'dialog',
-              'aria-modal': 'true',
-              'aria-labelledby': headingId,
-            },
-            h(
-              'div',
-              { className: 'dsh-mb-lightbox-head' },
-              h(
-                'h2',
-                { id: headingId, className: 'dsh-mb-lightbox-title' },
-                h('span', { className: 'dsh-mb-visually-hidden' }, `${t('lightboxTitle')} `),
-                lightboxImage.name,
-                multi ? h('span', { className: 'dsh-mb-lightbox-counter' }, `${position + 1} / ${lightboxList.length}`) : null,
-              ),
-              h(
-                'div',
-                { className: 'dsh-mb-lightbox-actions' },
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'dsh-mb-btn dsh-mb-btn--small',
-                    disabled: state.mutating,
-                    title: t('editDetails'),
-                    onClick: () => {
-                      selectSingleImage(lightboxImage.id)
-                      closeLightbox()
-                    },
-                  },
-                  h(IconPencil, { size: 12 }),
-                  h('span', { className: 'dsh-mb-btn-text' }, t('editDetails')),
-                ),
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'dsh-mb-btn dsh-mb-btn--small',
-                    disabled: state.mutating,
-                    title: t(lightboxImage.pinned ? 'unpinName' : 'pinName', { name: lightboxImage.name }),
-                    'aria-label': t(lightboxImage.pinned ? 'unpinName' : 'pinName', { name: lightboxImage.name }),
-                    'aria-pressed': lightboxImage.pinned ? 'true' : 'false',
-                    onClick: () => {
-                      void setPinned(lightboxImage, !lightboxImage.pinned)
-                    },
-                  },
-                  lightboxImage.pinned ? h(IconPinOff, { size: 12 }) : h(IconPin, { size: 12 }),
-                  h('span', { className: 'dsh-mb-btn-text' }, lightboxImage.pinned ? t('unpin') : t('pin')),
-                ),
-              ),
-              h(
-                'button',
-                {
-                  ref: lightboxCloseRef,
-                  type: 'button',
-                  className: 'dsh-mb-btn dsh-mb-btn--icon',
-                  'aria-label': t('lightboxClose'),
-                  title: t('lightboxClose'),
-                  onClick: closeLightbox,
-                },
-                h(IconClose, { size: 13 }),
-              ),
-            ),
-            h(
-              'div',
-              { className: 'dsh-mb-lightbox-figure' },
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'dsh-mb-btn dsh-mb-btn--icon dsh-mb-lightbox-nav dsh-mb-lightbox-prev',
-                  'aria-label': t('lightboxPrev'),
-                  title: t('lightboxPrev'),
-                  disabled: !multi,
-                  onClick: () => stepLightbox(-1),
-                },
-                h(IconChevron, { size: 16, direction: 'left' }),
-              ),
-              lightboxUrl === ''
-                ? h(
-                    'span',
-                    { className: 'dsh-mb-thumb-placeholder', 'aria-hidden': 'true' },
-                    h(IconImage, { size: 18 }),
-                  )
-                : h('img', {
-                    className: 'dsh-mb-lightbox-image',
-                    src: lightboxUrl,
-                    alt: t('previewAlt', { name: lightboxImage.name }),
-                    draggable: 'false',
-                  }),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'dsh-mb-btn dsh-mb-btn--icon dsh-mb-lightbox-nav dsh-mb-lightbox-next',
-                  'aria-label': t('lightboxNext'),
-                  title: t('lightboxNext'),
-                  disabled: !multi,
-                  onClick: () => stepLightbox(1),
-                },
-                h(IconChevron, { size: 16, direction: 'right' }),
-              ),
-            ),
-            h(
-              'div',
-              { className: 'dsh-mb-lightbox-body' },
-              lightboxImage.tags.length === 0
-                ? null
-                : h(
-                    'div',
-                    { className: 'dsh-mb-lightbox-field' },
-                    h('span', { className: 'dsh-mb-label' }, t('lightboxTags')),
-                    h(
-                      'div',
-                      { className: 'dsh-mb-tags' },
-                      lightboxImage.tags.map((tag) => h('span', { key: tag, className: 'dsh-mb-tag' }, tag)),
-                    ),
-                  ),
-              lightboxImage.notes.trim() === ''
-                ? null
-                : h(
-                    'div',
-                    { className: 'dsh-mb-lightbox-field' },
-                    h('span', { className: 'dsh-mb-label' }, t('lightboxNotes')),
-                    h('p', { className: 'dsh-mb-lightbox-notes' }, lightboxImage.notes),
-                  ),
-              lightboxImage.sourceUrl === ''
-                ? null
-                : h(
-                    'div',
-                    { className: 'dsh-mb-lightbox-field' },
-                    h('span', { className: 'dsh-mb-label' }, t('lightboxSource')),
-                    h(
-                      'a',
-                      {
-                        className: 'dsh-mb-link',
-                        href: lightboxImage.sourceUrl,
-                        target: '_blank',
-                        rel: 'noreferrer noopener',
-                      },
-                      lightboxImage.sourceUrl,
-                    ),
-                  ),
-            ),
-            h('p', { className: 'dsh-mb-lightbox-hint' }, t('lightboxHint')),
-          ),
-        )
-      }
 
       const renderMain = () => {
         if (board === null && state.loading) {
@@ -6410,7 +6730,7 @@ window.__ModuleLoader__.load({
           onDragLeave,
           onDrop,
         },
-        h('style', null, PAGE_CSS),
+        injectStyle('dsh-mb-page-css', PAGE_CSS),
         tagSuggestionList,
         h(
           'div',
@@ -6421,8 +6741,28 @@ window.__ModuleLoader__.load({
         errorBanner,
         uploads,
         h('div', { className: 'dsh-mb-body' }, h('div', { className: 'dsh-mb-main' }, renderMain()), detailsPanel),
-        state.selectedIds.length > 1 ? renderBulkToolbar() : null,
-        renderLightbox(),
+        state.selectedIds.length > 1
+          ? h(BulkBar, {
+              count: state.selectedIds.length,
+              mutating: state.mutating,
+              visibleIds: visibleIdsRef.current,
+              t,
+            })
+          : null,
+        lightboxImage === null
+          ? null
+          : h(Lightbox, {
+              image: lightboxImage,
+              list: lightboxList,
+              t,
+              mutating: state.mutating,
+              onClose: closeLightbox,
+              onNavigate: setLightboxId,
+              onEditDetails: (id) => {
+                selectSingleImage(id)
+                closeLightbox()
+              },
+            }),
         helpOpen
           ? h(ShortcutsDialog, { t, onClose: () => setHelpOpen(false), openerRef: helpOpenerRef })
           : null,
@@ -6479,17 +6819,16 @@ window.__ModuleLoader__.load({
 
     function ReferenceButton(props) {
       const t = getTranslator(props)
-      const state = useSyncExternalStore(subscribe, getSnapshot)
+      // Only the two counts: the composer must not re-render on every store change.
+      const imageTotal = useStoreSelector((current) => (current.board === null ? 0 : current.board.images.length))
+      const pinnedCount = useStoreSelector((current) => (current.board === null ? 0 : current.board.pinned.length))
       const draft = props.useInput((value) => (value === undefined || value === null ? '' : value.draft || ''))
-      const board = state.board
-      const imageTotal = board === null ? 0 : board.images.length
-      const pinnedCount = board === null ? 0 : board.pinned.length
       const disabled = imageTotal === 0
       const title = disabled ? t('referenceEmpty') : t('referenceInsert')
       return h(
         React.Fragment,
         null,
-        h('style', null, REFERENCE_CSS),
+        injectStyle('dsh-mb-reference-css', REFERENCE_CSS),
         h(
           'button',
           {
@@ -6534,6 +6873,7 @@ window.__ModuleLoader__.load({
         ctx.effect(() => () => {
           stopBoardSync()
           disposeImageUrls()
+          removeInjectedStyles()
         })
 
         ctx.slots.inject('sidebar.panellist', () =>
